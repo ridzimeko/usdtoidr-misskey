@@ -4,30 +4,40 @@ import { uploadMedia, postNoteWithMedia } from './api.js';
 import { getKursReport } from './kurs.js';
 
 // Setup jadwal (Setiap hari pukul 08:00 WIB)
-const schedule = '0 8 * * *';
+const dailySchedule = '0 8 * * *';
+// Setup jadwal pengecekan ATH (Setiap jam)
+const hourlySchedule = '0 * * * *';
 
 console.log(`[BOT] Mulai berjalan...`);
-console.log(`[CRON] Jadwal posting otomatis diatur: ${schedule} (Zona Waktu: Asia/Jakarta)`);
+console.log(`[CRON] Jadwal posting harian diatur: ${dailySchedule} (Zona Waktu: Asia/Jakarta)`);
+console.log(`[CRON] Jadwal pengecekan ATH diatur: ${hourlySchedule} (Zona Waktu: Asia/Jakarta)`);
 
-async function runTask(visibility) {
-    console.log(`\n[${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}] Memulai proses posting otomatis...`);
+async function runTask(visibility, isDaily = true) {
+    console.log(`\n[${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}] Memulai proses ${isDaily ? 'posting otomatis' : 'pengecekan ATH'}...`);
     try {
         // 1. Ambil data kurs dan gambar
-        console.log('  -> Mengambil data kurs terbaru...');
-        const { imageBuffer, caption, closePrice } = await getKursReport();
-        console.log(`  -> Berhasil! Kurs saat ini: Rp ${closePrice}`);
+        console.log('-> Mengambil data kurs terbaru...');
+        const report = await getKursReport({ isDaily });
+
+        if (!report) {
+            console.log('-> Belum ada rekor ATH baru kelipatan 100. Skip posting.');
+            return;
+        }
+
+        const { imageBuffer, caption, closePrice } = report;
+        console.log(`-> Berhasil! Kurs saat ini: Rp ${closePrice}`);
 
         // 2. Upload gambar
-        console.log('  -> Mengupload gambar ke Misskey...');
+        console.log('-> Mengupload gambar ke Misskey...');
         const uploadResult = await uploadMedia(imageBuffer, `kurs-${Date.now()}.png`);
 
         if (!uploadResult?.id) {
             throw new Error('Gagal mengupload gambar ke drive.');
         }
-        console.log(`  -> Gambar berhasil diupload (ID: ${uploadResult.id})`);
+        console.log(`-> Gambar berhasil diupload (ID: ${uploadResult.id})`);
 
         // 3. Post note
-        console.log('  -> Memposting note ke timeline...');
+        console.log('-> Memposting note ke timeline...');
         const postResult = await postNoteWithMedia(caption, uploadResult.id, visibility);
 
         if (postResult) {
@@ -41,15 +51,21 @@ async function runTask(visibility) {
     }
 }
 
-cron.schedule(schedule, runTask, {
+cron.schedule(dailySchedule, () => runTask('public', true), {
+    scheduled: true,
+    timezone: "Asia/Jakarta"
+});
+
+cron.schedule(hourlySchedule, () => runTask('public', false), {
     scheduled: true,
     timezone: "Asia/Jakarta"
 });
 
 // test send note
 if (process.argv.includes('--test')) {
-    console.log("[BOT] Mode Testing Aktif! Pesan dikirim sekarang juga...");
-    runTask('public');
+    console.log("[BOT] Mode Testing Aktif! Pengecekan ATH dikirim sekarang juga...");
+    runTask('specified', true);
+    process.exit(0);
 }
 
 console.log("[BOT] Menunggu jadwal berikutnya...");

@@ -1,6 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import ky, { isHTTPError } from 'ky';
+import { loadState, saveState } from './state.js';
 
 function apiClient() {
     const api = ky.create({
@@ -16,19 +15,10 @@ function apiClient() {
 }
 
 async function getUploadFolder() {
-    const statePath = path.resolve(process.cwd(), 'state.json');
-    let state = {};
+    const state = loadState();
 
-    // get upload folder
-    try {
-        if (fs.existsSync(statePath)) {
-            state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-            if (state.kursFolderId) {
-                return state.kursFolderId;
-            }
-        }
-    } catch (err) {
-        console.error('Gagal membaca state.json:', err);
+    if (state.kursFolderId) {
+        return state.kursFolderId;
     }
 
     // create upload folder if not found
@@ -47,7 +37,7 @@ async function getUploadFolder() {
         }
 
         state.kursFolderId = folder.id;
-        fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+        saveState(state);
 
         return folder.id;
     } catch (error) {

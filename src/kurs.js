@@ -1,7 +1,6 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import { createCuimpHttp } from 'cuimp';
+import { loadState, saveState } from './state.js';
 
 const scraper = createCuimpHttp({
     descriptor: { browser: 'chrome', version: 'latest' },
@@ -46,7 +45,7 @@ async function getKursData() {
     return { data };
 }
 
-async function generateKursMessage(data) {
+async function generateKursMessage(data, isAthCrossed, state) {
     const latest = data.data[data.data.length - 1];
     const unixtime = latest[0];
     const high = latest[2];
@@ -134,36 +133,42 @@ async function generateKursMessage(data) {
     const imageBuffer = await chartJSNodeCanvas.renderToBuffer(configuration);
     const dataDateStr = new Date(unixtime).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
 
-    // simpan ATH, closePrice dan high price ke state.json
-    const statePath = path.resolve(process.cwd(), 'state.json');
-    let state = {};
-
-    if (fs.existsSync(statePath)) {
-        try {
-            state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-        } catch (_e) {
-            console.error('Gagal mem-parsing state.json, membuat ulang...');
-        }
-    }
-
     state.lastFetchDate = dataDateStr;
     state.ath = state.ath ? (high > state.ath ? high : state.ath) : high;
 
-    fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+    saveState(state);
 
-    const caption = `Kurs USD ke IDR\n\n` +
-        `Kurs saat ini: Rp ${priceStr}\n` +
-        `Range hari ini: Rp ${lowStr} - Rp ${highStr}\n` +
-        `ATH tersimpan: Rp ${state.ath}\n\n` +
+    const prefix = isAthCrossed ? `🚀 ATH Rupiah Terbaru!\n\n` : ``;
+
+    const caption = `${prefix}Kurs USD ke IDR\n\n` +
+        `Kurs saat ini: Rp. ${priceStr}\n` +
+        `Range hari ini: Rp. ${lowStr} - Rp. ${highStr}\n` +
+        `ATH tersimpan: Rp. ${state.ath}\n\n` +
         `Waktu data: ${dataDateStr} WIB\n` +
         `Sumber: https://investing.com/currencies/usd-idr`;
 
     return { imageBuffer, caption, closePrice: close };
 }
 
-export async function getKursReport() {
+export async function getKursReport(options = { isDaily: true }) {
     const { data } = await getKursData();
-    const result = await generateKursMessage(data);
+    const latest = data.data[data.data.length - 1];
+    const high = latest[2];
+
+    const state = loadState();
+
+    const previousAth = state.ath || high;
+    const newAth = high > previousAth ? high : previousAth;
+    const isAthCrossed = Math.floor(newAth / 100) > Math.floor(previousAth / 100);
+
+    if (!options.isDaily && !isAthCrossed) {
+        if (newAth > previousAth) {
+            state.ath = newAth;
+            saveState(state);
+        }
+        return null;
+    }
+
+    const result = await generateKursMessage(data, isAthCrossed, state);
     return result;
 }
-
