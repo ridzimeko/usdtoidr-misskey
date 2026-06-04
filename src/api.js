@@ -7,7 +7,7 @@ function apiClient() {
         baseUrl: 'https://misskey.id/api/',
         headers: {
             'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+            'User-Agent': 'slayerwitch-network (https://slayerwitch.my.id)',
             'Authorization': `Bearer ${process.env.MISSKEY_ACCESS_TOKEN}`,
         },
     });
