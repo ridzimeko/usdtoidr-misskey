@@ -73,15 +73,16 @@ async function uploadMedia(buffer, name, comment = null) {
         // `multipart/form-data`
         const formData = new FormData();
         formData.append('folderId', folderId);
-        formData.append('file', new Blob([buffer], { type: 'image/png' }), name);
-        formData.append('isSensitive', false);
-        formData.append('force', false);
-        formData.append('name', name);
-        formData.append('comment', comment);
+        formData.append('file', new Blob([buffer], { type: 'image/png' }), name || 'image.png');
+
+        // Jangan tambahkan value jika null/undefined, karena di FormData akan berubah jadi string "undefined"
+        if (name) formData.append('name', name);
+        if (comment) formData.append('comment', comment);
 
         const response = await api.post('drive/files/create', {
             body: formData
-        });
+        }).json();
+
         return response;
     } catch (error) {
         if (isHTTPError(error)) {

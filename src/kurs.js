@@ -57,12 +57,16 @@ async function generateKursMessage(data) {
     const highStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(high);
     const lowStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(low);
 
-    const chartData = data.data.slice(-20);
-    const labels = chartData.map(d => {
+    const chartData = data.data.slice(-50);
+    const labels = chartData.map((d, index) => {
         const date = new Date(d[0]);
-        const mins = date.getMinutes();
-        if (mins === 0 || mins === 30) {
-            return `${date.getHours().toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+        // Tampilkan label setiap 10 data agar tidak penuh
+        if (index % 10 === 0) {
+            const day = date.getDate().toString().padStart(2, '0');
+            const monthStr = date.toLocaleString('id-ID', { month: 'short' });
+            const hours = date.getHours().toString().padStart(2, '0');
+            const mins = date.getMinutes().toString().padStart(2, '0');
+            return `${day} ${monthStr} ${hours}:${mins}`;
         }
         return '';
     });
@@ -115,7 +119,7 @@ async function generateKursMessage(data) {
             layout: { padding: { top: 220, left: 20, right: 20, bottom: 20 } },
             plugins: { legend: { display: false }, title: { display: false } },
             scales: {
-                x: { ticks: { color: '#9aa0a6', maxRotation: 0, autoSkip: false }, grid: { display: false }, border: { display: false } },
+                x: { ticks: { color: '#9aa0a6', maxRotation: 0, autoSkip: false, labelOffset: 25 }, grid: { display: false }, border: { display: false } },
                 y: { position: 'right', ticks: { color: '#9aa0a6', maxTicksLimit: 5 }, grid: { color: '#3c4043', drawBorder: false }, border: { display: false } }
             }
         },
@@ -147,12 +151,12 @@ async function generateKursMessage(data) {
 
     fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
 
-    const caption = `*Kurs USD ke IDR*\n\n` +
-        `Waktu data: ${dataDateStr} WIB\n` +
+    const caption = `Kurs USD ke IDR\n\n` +
         `Kurs saat ini: Rp ${priceStr}\n` +
         `Range hari ini: Rp ${lowStr} - Rp ${highStr}\n` +
         `ATH tersimpan: Rp ${state.ath}\n\n` +
-        `Sumber data: https://investing.com/currencies/usd-idr`;
+        `Waktu data: ${dataDateStr} WIB\n` +
+        `Sumber: https://investing.com/currencies/usd-idr`;
 
     return { imageBuffer, caption, closePrice: close };
 }

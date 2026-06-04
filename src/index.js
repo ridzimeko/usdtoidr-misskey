@@ -49,7 +49,7 @@ cron.schedule(schedule, runTask, {
 // test send note
 if (process.argv.includes('--test')) {
     console.log("[BOT] Mode Testing Aktif! Pesan dikirim sekarang juga...");
-    runTask('direct');
+    runTask('public');
 }
 
 console.log("[BOT] Menunggu jadwal berikutnya...");
