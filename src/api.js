@@ -15,6 +15,10 @@ function apiClient() {
 }
 
 async function getUploadFolder() {
+    if (process.env.MISSKEY_FOLDER_ID) {
+        return process.env.MISSKEY_FOLDER_ID;
+    }
+
     const state = loadState();
 
     if (state.kursFolderId) {

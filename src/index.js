@@ -29,7 +29,7 @@ async function runTask(visibility, isDaily = true) {
 
         // 2. Upload gambar
         console.log('-> Mengupload gambar ke Misskey...');
-        const uploadResult = await uploadMedia(imageBuffer, `kurs-${Date.now()}.png`);
+        const uploadResult = await uploadMedia(imageBuffer, `kurs-${Date.now()}.png`, `Informasi kurs USD ke IDR hari ini yaitu Rp. ${closePrice} beserta grafik nya`);
 
         if (!uploadResult?.id) {
             throw new Error('Gagal mengupload gambar ke drive.');
