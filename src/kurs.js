@@ -45,16 +45,14 @@ async function getKursData() {
     return { data };
 }
 
-async function generateKursMessage(data, isAthCrossed, state) {
+async function generateKursMessage(data, isAthCrossed, state, highestInArray, lowestInArray) {
     const latest = data.data[data.data.length - 1];
     const unixtime = latest[0];
-    const high = latest[2];
-    const low = latest[3];
     const close = latest[4];
 
     const priceStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(close);
-    const highStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(high);
-    const lowStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(low);
+    const highStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(highestInArray);
+    const lowStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(lowestInArray);
 
     const chartData = data.data.slice(-50);
     const labels = chartData.map((d, index) => {
@@ -134,7 +132,7 @@ async function generateKursMessage(data, isAthCrossed, state) {
     const dataDateStr = new Date(unixtime).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
 
     state.lastFetchDate = dataDateStr;
-    state.ath = state.ath ? (high > state.ath ? high : state.ath) : high;
+    state.ath = state.ath ? (highestInArray > state.ath ? highestInArray : state.ath) : highestInArray;
 
     saveState(state);
 
@@ -152,13 +150,15 @@ async function generateKursMessage(data, isAthCrossed, state) {
 
 export async function getKursReport(options = { isDaily: true }) {
     const { data } = await getKursData();
-    const latest = data.data[data.data.length - 1];
-    const high = latest[2];
+    
+    // Cari nilai high tertinggi dan low terendah dari seluruh array (160 data poin)
+    const highestInArray = Math.max(...data.data.map(d => d[2]));
+    const lowestInArray = Math.min(...data.data.map(d => d[3]));
 
     const state = loadState();
 
-    const previousAth = state.ath || high;
-    const newAth = high > previousAth ? high : previousAth;
+    const previousAth = state.ath || highestInArray;
+    const newAth = highestInArray > previousAth ? highestInArray : previousAth;
     const isAthCrossed = Math.floor(newAth / 100) > Math.floor(previousAth / 100);
 
     if (!options.isDaily && !isAthCrossed) {
@@ -169,6 +169,6 @@ export async function getKursReport(options = { isDaily: true }) {
         return null;
     }
 
-    const result = await generateKursMessage(data, isAthCrossed, state);
+    const result = await generateKursMessage(data, isAthCrossed, state, highestInArray, lowestInArray);
     return result;
 }
