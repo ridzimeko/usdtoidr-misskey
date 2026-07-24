@@ -99,15 +99,17 @@ export async function runTestTask() {
     process.exit(0);
 }
 
+const timezone = process.env.CRON_TIMEZONE || 'Asia/Jakarta';
+
 // Register Cron Schedules
 cron.schedule(dailySchedule, () => runDailyTask('public'), {
     scheduled: true,
-    timezone: "Asia/Jakarta"
+    timezone
 });
 
 cron.schedule(hourlySchedule, () => runAthCheckTask('public'), {
     scheduled: true,
-    timezone: "Asia/Jakarta"
+    timezone
 });
 
 // Cek apakah mode testing diaktifkan dari CLI

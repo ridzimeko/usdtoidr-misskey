@@ -2,12 +2,24 @@ import ky, { isHTTPError } from 'ky';
 import { loadState, saveState } from './state.js';
 
 function apiClient() {
+    const baseUrl = process.env.MISSKEY_API_BASE_URL;
+    const accessToken = process.env.MISSKEY_ACCESS_TOKEN;
+    const userAgent = process.env.USER_AGENT;
+
+    if (!baseUrl) {
+        throw new Error('MISSKEY_API_BASE_URL is not defined');
+    }
+
+    if (!accessToken) {
+        throw new Error('MISSKEY_ACCESS_TOKEN is not defined');
+    }
+
     const api = ky.create({
-        baseUrl: 'https://misskey.id/api/',
+        prefix: baseUrl,
         headers: {
             'Content-Type': 'application/json',
-            'User-Agent': 'slayerwitch-network (https://slayerwitch.my.id)',
-            'Authorization': `Bearer ${process.env.MISSKEY_ACCESS_TOKEN}`,
+            'User-Agent': userAgent || 'USDtoIDR-Bot',
+            'Authorization': `Bearer ${accessToken}`,
         },
     });
 
@@ -80,7 +92,7 @@ async function uploadMedia(buffer, name, comment = null) {
         return response;
     } catch (error) {
         if (isHTTPError(error)) {
-            console.log('Gagal mengupload file:', error);
+            console.log(`Gagal mengupload file: ${error.response.status} ${error.response.statusText}`);
         }
         return null;
     }
