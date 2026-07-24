@@ -1,0 +1,9 @@
+version = 1
+
+[[apps]]
+name = "usdtoidr-misskey"
+command = "node src/index.js"
+cwd = "./"
+restart_policy = "on_failure"
+max_restarts = 5
+stop_timeout_secs = 5
