@@ -3,8 +3,8 @@ import cron from 'node-cron';
 import { uploadMedia, postNoteWithMedia } from './api.js';
 import { getKursReport } from './kurs.js';
 
-// Setup jadwal (Setiap hari pukul 08:00 WIB)
-const dailySchedule = '0 8 * * *';
+// Setup jadwal (Setiap hari Senin-Sabtu pukul 16:00 WIB)
+const dailySchedule = '0 16 * * 1-6';
 // Setup jadwal pengecekan ATH (Setiap jam)
 const hourlySchedule = '0 * * * *';
 
@@ -65,7 +65,6 @@ cron.schedule(hourlySchedule, () => runTask('public', false), {
 if (process.argv.includes('--test')) {
     console.log("[BOT] Mode Testing Aktif! Pengecekan ATH dikirim sekarang juga...");
     runTask('specified', true);
-    process.exit(0);
 }
 
 console.log("[BOT] Menunggu jadwal berikutnya...");

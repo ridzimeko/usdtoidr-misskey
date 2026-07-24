@@ -16,7 +16,8 @@ async function getKursData() {
     let data = null;
     let success = false;
     let attempts = 0;
-    const maxRetries = 5;
+    const maxRetries = 4;
+    let lastError = null;
 
     while (attempts < maxRetries && !success) {
         attempts++;
@@ -31,15 +32,24 @@ async function getKursData() {
                 data = parsed;
                 success = true;
             } else {
+                lastError = new Error("Format respons API tidak sesuai atau data kosong");
+                if (attempts < maxRetries) {
+                    console.warn(`⚠️ [RETRY ${attempts}/${maxRetries}] Respons API tidak valid/kosong. Mencoba lagi dalam 2 detik...`);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+        } catch (err) {
+            lastError = err;
+            if (attempts < maxRetries) {
+                console.warn(`⚠️ [RETRY ${attempts}/${maxRetries}] Gagal mengambil data: ${err.message}. Mencoba lagi dalam 2 detik...`);
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
-        } catch (_e) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
         }
     }
 
     if (!data?.data || data.data.length === 0) {
-        throw new Error("Gagal mengambil data dari API");
+        const errorDetail = lastError?.message ? `: ${lastError.message}` : '';
+        throw new Error(`Gagal mengambil data dari API (setelah ${maxRetries}x percobaan)${errorDetail}`);
     }
 
     return { data };
@@ -150,7 +160,7 @@ async function generateKursMessage(data, isAthCrossed, state, highestInArray, lo
 
 export async function getKursReport(options = { isDaily: true }) {
     const { data } = await getKursData();
-    
+
     // Cari nilai high tertinggi dan low terendah dari seluruh array (160 data poin)
     const highestInArray = Math.max(...data.data.map(d => d[2]));
     const lowestInArray = Math.min(...data.data.map(d => d[3]));
