@@ -4,6 +4,7 @@ import { loadState, saveState } from './state.js';
 
 const scraper = createCuimpHttp({
     descriptor: { browser: 'chrome', version: 'latest' },
+    logger: { debug: () => { } } // nonaktifkan logger binary cuimp
 });
 
 const width = 800;
