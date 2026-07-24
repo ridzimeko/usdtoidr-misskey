@@ -17,7 +17,7 @@ async function getKursData() {
     let data = null;
     let success = false;
     let attempts = 0;
-    const maxRetries = 4;
+    const maxRetries = 5;
     let lastError = null;
 
     while (attempts < maxRetries && !success) {
@@ -35,15 +35,15 @@ async function getKursData() {
             } else {
                 lastError = new Error("Format respons API tidak sesuai atau data kosong");
                 if (attempts < maxRetries) {
-                    console.warn(`⚠️ [RETRY ${attempts}/${maxRetries}] Respons API tidak valid/kosong. Mencoba lagi dalam 2 detik...`);
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    console.warn(`⚠️ [RETRY ${attempts}/${maxRetries}] Respons API tidak valid/kosong. Mencoba lagi dalam 5 detik...`);
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                 }
             }
         } catch (err) {
             lastError = err;
             if (attempts < maxRetries) {
-                console.warn(`⚠️ [RETRY ${attempts}/${maxRetries}] Gagal mengambil data: ${err.message}. Mencoba lagi dalam 2 detik...`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                console.warn(`⚠️ [RETRY ${attempts}/${maxRetries}] Gagal mengambil data: ${err.message}. Mencoba lagi dalam 5 detik...`);
+                await new Promise(resolve => setTimeout(resolve, 5000));
             }
         }
     }
