@@ -64,21 +64,47 @@ async function generateKursMessage(data, isAthCrossed, state, highestInArray, lo
     const priceStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(close);
     const highStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(highestInArray);
     const lowStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(lowestInArray);
+    const athStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2 }).format(state.ath);
 
     const chartData = data.data.slice(-50);
+    let lastDateStr = null;
     const labels = chartData.map((d, index) => {
         const date = new Date(d[0]);
         // Tampilkan label setiap 10 data agar tidak penuh
         if (index % 10 === 0) {
-            const day = date.getDate().toString().padStart(2, '0');
-            const monthStr = date.toLocaleString('id-ID', { month: 'short' });
-            const hours = date.getHours().toString().padStart(2, '0');
-            const mins = date.getMinutes().toString().padStart(2, '0');
-            return `${day} ${monthStr} ${hours}:${mins}`;
+            const dateDayStr = date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', timeZone: 'Asia/Jakarta' });
+            const timeStr = date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta', hour12: false }).replace(/\./g, ':');
+
+            // Tampilkan tanggal jika label pertama atau ada pergantian hari
+            if (lastDateStr === null || dateDayStr !== lastDateStr) {
+                lastDateStr = dateDayStr;
+                return `${dateDayStr} ${timeStr}`;
+            }
+
+            // Jika hari masih sama, tampilkan jam saja
+            return timeStr;
         }
         return '';
     });
     const closeData = chartData.map(d => d[4]);
+
+    const minPrice = Math.min(...closeData);
+    const maxPrice = Math.max(...closeData);
+    let yMin = Math.floor(minPrice / 100) * 100;
+    let yMax = Math.ceil(maxPrice / 100) * 100;
+
+    // Pastikan sumbu-Y memiliki minimal 3-4 rentang (4-5 item tick) berjarak 100 Rupiah
+    let steps = Math.round((yMax - yMin) / 100);
+    const minSteps = 3; // Minimal 3 rentang = 4 item tick pada sumbu Y
+
+    if (steps < minSteps) {
+        const needed = minSteps - steps;
+        const padBottom = Math.ceil(needed / 2);
+        const padTop = Math.floor(needed / 2);
+
+        yMin -= padBottom * 100;
+        yMax += padTop * 100;
+    }
 
     const customTextPlugin = {
         id: 'customText',
@@ -103,7 +129,7 @@ async function generateKursMessage(data, isAthCrossed, state, highestInArray, lo
             ctx.fillStyle = '#9aa0a6';
             ctx.font = '16px sans-serif';
             const dateStr = new Date(unixtime).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Jakarta' }).replace(/\./g, ':');
-            ctx.fillText(`${dateStr} WIB · usdtoidr@misskey.id`, 30, 190);
+            ctx.fillText(`${dateStr} WIB · @usdtoidr@misskey.id`, 30, 190);
             ctx.restore();
         }
     };
@@ -128,7 +154,18 @@ async function generateKursMessage(data, isAthCrossed, state, highestInArray, lo
             plugins: { legend: { display: false }, title: { display: false } },
             scales: {
                 x: { ticks: { color: '#9aa0a6', maxRotation: 0, autoSkip: false, labelOffset: 25 }, grid: { display: false }, border: { display: false } },
-                y: { position: 'right', ticks: { color: '#9aa0a6', maxTicksLimit: 5 }, grid: { color: '#3c4043', drawBorder: false }, border: { display: false } }
+                y: {
+                    position: 'right',
+                    min: yMin,
+                    max: yMax,
+                    ticks: {
+                        color: '#9aa0a6',
+                        stepSize: 100,
+                        callback: (value) => new Intl.NumberFormat('id-ID').format(value)
+                    },
+                    grid: { color: '#3c4043', drawBorder: false },
+                    border: { display: false }
+                }
             }
         },
         plugins: [customTextPlugin]
@@ -152,11 +189,11 @@ async function generateKursMessage(data, isAthCrossed, state, highestInArray, lo
     const caption = `${prefix}Kurs USD ke IDR\n\n` +
         `Kurs saat ini: Rp. ${priceStr}\n` +
         `Range hari ini: Rp. ${lowStr} - Rp. ${highStr}\n` +
-        `ATH tersimpan: Rp. ${state.ath}\n\n` +
+        `ATH tersimpan: Rp. ${athStr}\n\n` +
         `Waktu data: ${dataDateStr} WIB\n` +
         `Sumber: https://investing.com/currencies/usd-idr`;
 
-    return { imageBuffer, caption, closePrice: close };
+    return { imageBuffer, caption, closePrice: priceStr };
 }
 
 export async function getKursReport(options = { isDaily: true }) {
