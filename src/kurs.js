@@ -17,7 +17,7 @@ async function getKursData() {
     let data = null;
     let success = false;
     let attempts = 0;
-    const maxRetries = 5;
+    const maxRetries = 3;
     let lastError = null;
 
     while (attempts < maxRetries && !success) {
