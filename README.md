@@ -45,6 +45,8 @@ USER_AGENT=USDtoIDR-Bot
 Bot akan berjalan secara berkelanjutan di latar belakang sesuai jadwal cron:
 
 ```bash
+pnpm start
+# atau
 node src/index.js
 ```
 
@@ -52,17 +54,51 @@ node src/index.js
 
 Untuk melakukan pengujian posting note tanpa menunggu jadwal cron:
 
-- **Test Posting Harian**:
+- **Test Posting Harian (default visibility: `specified`)**:
 
   ```bash
+  pnpm test
+  # atau
   node src/index.js --test
   ```
 
-- **Test Pengecekan ATH**:
+- **Test Pengecekan ATH (default visibility: `specified`)**:
+
   ```bash
+  pnpm run test-ath
+  # atau
+  pnpm run test:ath
+  # atau
   node src/index.js --test-ath
   ```
 
+### Parameter Custom Visibility pada Mode Testing
+
+Secara default, mode testing menggunakan visibilitas `specified` agar pengujian tidak mengotori linimasa publik Misskey. Anda dapat menentukan visibilitas kustom (`public`, `home`, `followers`, `specified`) secara fleksibel:
+
+- **Test Posting Harian dengan Visibilitas Kustom**:
+
+  ```bash
+  # Menggunakan pnpm
+  pnpm test public
+  pnpm test home
+
+  # Menggunakan node langsung
+  node src/index.js --test public
+  node src/index.js --test=public
+  ```
+
+- **Test Pengecekan ATH dengan Visibilitas Kustom**:
+
+  ```bash
+  # Menggunakan pnpm
+  pnpm run test-ath public
+  pnpm run test-ath specified
+
+  # Menggunakan node langsung
+  node src/index.js --test-ath public
+  node src/index.js --test-ath=specified
+  ```
 ---
 
 ## 📄 Lisensi
