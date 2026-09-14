@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import WebSocket from "ws";
-import { saveKursTick } from "./db.js";
+import { CANDLE_INTERVAL_MS, getCandleTimestamp, saveKursTick } from "./db.js";
 
 const BASE_WS = "wss://streaming.forexpros.com/echo";
 const ORIGIN = "https://www.investing.com";
@@ -64,6 +64,54 @@ export function parsePrice(val) {
 	if (!val) return 0;
 	return parseFloat(String(val).replace(/,/g, ""));
 }
+export function formatTimeWib(ms) {
+	return new Date(ms)
+		.toLocaleTimeString("id-ID", {
+			timeZone: "Asia/Jakarta",
+			hour: "2-digit",
+			minute: "2-digit",
+			hour12: false,
+		})
+		.replace(/\./g, ":");
+}
+
+export function formatPriceNumber(val) {
+	if (typeof val !== "number" || !Number.isFinite(val)) return "-";
+	return new Intl.NumberFormat("id-ID", {
+		minimumFractionDigits: 1,
+		maximumFractionDigits: 2,
+	}).format(val);
+}
+
+export function logCandleClosed(candle) {
+	const startStr = formatTimeWib(candle.bucket);
+	const endStr = formatTimeWib(candle.bucket + CANDLE_INTERVAL_MS);
+	const changeVal = candle.close - candle.open;
+	const changeStr =
+		candle.change != null
+			? String(candle.change).startsWith("+") ||
+				String(candle.change).startsWith("-")
+				? String(candle.change)
+				: `+${candle.change}`
+			: `${changeVal >= 0 ? "+" : ""}${changeVal.toFixed(1)}`;
+	const changePctStr =
+		candle.changePercent != null
+			? String(candle.changePercent)
+			: `${((changeVal / candle.open) * 100).toFixed(2)}%`;
+
+	console.log(
+		`[WS CANDLE 15M] ${startStr} - ${endStr} WIB | Open: ${formatPriceNumber(candle.open)} | High: ${formatPriceNumber(candle.high)} | Low: ${formatPriceNumber(candle.low)} | Close: ${formatPriceNumber(candle.close)} (${changeStr} / ${changePctStr}) | Ticks: ${candle.tickCount}`,
+	);
+}
+
+export function logCandleActive(candle) {
+	const startStr = formatTimeWib(candle.bucket);
+	const endStr = formatTimeWib(candle.bucket + CANDLE_INTERVAL_MS);
+	console.log(
+		`[WS 15M] Candle aktif: ${startStr} - ${endStr} WIB (Open: Rp ${formatPriceNumber(candle.open)})`,
+	);
+}
+
 export function logPriceTick(data) {
 	const changeStr =
 		data.pc && data.pcp
@@ -316,7 +364,7 @@ export function startKursWebSocketWatcher({
 	let isConnected = false;
 	let hasEverConnected = false;
 	let lastMessageTime = Date.now();
-
+	let activeCandle = null;
 	function stopHeartbeat() {
 		clearInterval(heartbeatTimer);
 		heartbeatTimer = null;
@@ -344,6 +392,15 @@ export function startKursWebSocketWatcher({
 	function startWatchdog() {
 		stopWatchdog();
 		watchdogTimer = setInterval(() => {
+			// Cek apakah candle 15 menit sudah selesai dan perlu dicetak
+			if (
+				activeCandle &&
+				Date.now() >= activeCandle.bucket + CANDLE_INTERVAL_MS
+			) {
+				logCandleClosed(activeCandle);
+				activeCandle = null;
+			}
+
 			if (ws && ws.readyState === WebSocket.OPEN) {
 				const idleMs = Date.now() - lastMessageTime;
 				if (idleMs > stalledTimeoutMs) {
@@ -467,24 +524,81 @@ export function startKursWebSocketWatcher({
 					const parsed = parseApplicationMessage(msg);
 					if (parsed.type === "channel" && parsed.channel === "pid-2138") {
 						const data = parsed.data;
-						logPriceTick(data);
+						const currentPrice = data.last_numeric
+							? Number(data.last_numeric)
+							: parsePrice(data.last);
+						const tickTimestamp = data.timestamp
+							? Number(data.timestamp) *
+								(Number(data.timestamp) < 1e11 ? 1000 : 1)
+							: Date.now();
+						const currentBucket = getCandleTimestamp(
+							tickTimestamp,
+							CANDLE_INTERVAL_MS,
+						);
 
+						// 1. Cek rollover candle 15 menit
+						if (activeCandle && currentBucket > activeCandle.bucket) {
+							logCandleClosed(activeCandle);
+							activeCandle = null;
+						}
+
+						if (!activeCandle) {
+							activeCandle = {
+								bucket: currentBucket,
+								open: currentPrice,
+								high: data.high
+									? Math.max(parsePrice(data.high), currentPrice)
+									: currentPrice,
+								low: data.low
+									? Math.min(parsePrice(data.low), currentPrice)
+									: currentPrice,
+								close: currentPrice,
+								change: data.pc,
+								changePercent: data.pcp,
+								tickCount: 1,
+							};
+							logCandleActive(activeCandle);
+						} else {
+							activeCandle.high = Math.max(activeCandle.high, currentPrice);
+							if (data.high) {
+								activeCandle.high = Math.max(
+									activeCandle.high,
+									parsePrice(data.high),
+								);
+							}
+							activeCandle.low = Math.min(activeCandle.low, currentPrice);
+							if (data.low) {
+								activeCandle.low = Math.min(
+									activeCandle.low,
+									parsePrice(data.low),
+								);
+							}
+							activeCandle.close = currentPrice;
+							activeCandle.change = data.pc;
+							activeCandle.changePercent = data.pcp;
+							activeCandle.tickCount++;
+						}
+
+						// 2. Simpan atau perbarui candle 15 menit di SQLite
 						try {
 							saveKursTick({
-								timestamp: data.timestamp,
-								price: data.last_numeric ?? data.last,
+								bucket: currentBucket,
+								timestamp: tickTimestamp,
+								price: currentPrice,
 								last: data.last,
 								last_numeric: data.last_numeric,
-								high: data.high,
-								low: data.low,
+								high: activeCandle.high,
+								low: activeCandle.low,
+								close: currentPrice,
 								change: data.pc,
 								changePercent: data.pcp,
 								source: "websocket",
 							});
 						} catch (err) {
-							console.error("Gagal menyimpan tick ke SQLite:", err);
+							console.error("Gagal menyimpan candle ke SQLite:", err);
 						}
 
+						// 3. Callback onPrice (deteksi ATH tetap instan per tick)
 						if (onPrice) {
 							try {
 								onPrice({
@@ -496,9 +610,9 @@ export function startKursWebSocketWatcher({
 									changePercent: data.pcp,
 									time: data.time,
 									last_numeric: data.last_numeric,
-									high: data.high,
-									low: data.low,
-									timestamp: data.timestamp,
+									high: activeCandle.high,
+									low: activeCandle.low,
+									timestamp: tickTimestamp,
 									raw: data,
 								});
 							} catch (err) {

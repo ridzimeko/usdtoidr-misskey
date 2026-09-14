@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -28,8 +29,20 @@ export function normalizeTimestamp(rawTimestamp) {
 	return ts;
 }
 
+export const CANDLE_INTERVAL_MS = 15 * 60 * 1000;
+
+export function getCandleTimestamp(
+	rawTimestamp,
+	intervalMs = CANDLE_INTERVAL_MS,
+) {
+	const ts = normalizeTimestamp(rawTimestamp);
+	return Math.floor(ts / intervalMs) * intervalMs;
+}
+
 export function getDefaultDbPath() {
-	return process.env.SQLITE_DB_PATH || path.resolve(process.cwd(), "kurs.db");
+	return (
+		process.env.SQLITE_DB_PATH || path.resolve(process.cwd(), "data", "kurs.db")
+	);
 }
 
 export function initDatabase(dbPath = getDefaultDbPath()) {
@@ -41,12 +54,17 @@ export function initDatabase(dbPath = getDefaultDbPath()) {
 		closeDatabase();
 	}
 
+	const dir = path.dirname(dbPath);
+	if (!fs.existsSync(dir)) {
+		fs.mkdirSync(dir, { recursive: true });
+	}
+
 	const db = new DatabaseSync(dbPath);
 
-	// Optimasi performa SQLite
+	// Optimasi performa SQLite & penanganan akses konkuren
 	db.exec("PRAGMA journal_mode = WAL;");
 	db.exec("PRAGMA synchronous = NORMAL;");
-
+	db.exec("PRAGMA busy_timeout = 5000;");
 	// Buat tabel kurs_history
 	db.exec(`
 		CREATE TABLE IF NOT EXISTS kurs_history (
@@ -96,19 +114,18 @@ const UPSERT_QUERY = `
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(timestamp, source) DO UPDATE SET
 		price = excluded.price,
-		open = coalesce(excluded.open, kurs_history.open),
-		high = coalesce(excluded.high, kurs_history.high),
-		low = coalesce(excluded.low, kurs_history.low),
-		close = coalesce(excluded.close, kurs_history.close),
+		open = coalesce(kurs_history.open, excluded.open),
+		high = max(coalesce(kurs_history.high, excluded.high), coalesce(excluded.high, kurs_history.high)),
+		low = min(coalesce(kurs_history.low, excluded.low), coalesce(excluded.low, kurs_history.low)),
+		close = excluded.close,
 		change = coalesce(excluded.change, kurs_history.change),
 		change_percent = coalesce(excluded.change_percent, kurs_history.change_percent);
 `;
 
-export function saveKursTick(tickData) {
+export function saveKursTick(tickData, options = {}) {
 	if (!tickData) return null;
 
 	const db = getDb();
-	const timestamp = normalizeTimestamp(tickData.timestamp);
 	const price =
 		toNumeric(tickData.price) ??
 		toNumeric(tickData.last_numeric) ??
@@ -120,9 +137,17 @@ export function saveKursTick(tickData) {
 		return null;
 	}
 
-	const open = toNumeric(tickData.open);
-	const high = toNumeric(tickData.high);
-	const low = toNumeric(tickData.low);
+	// Jika source websocket, rangkum ke bucket candle 15 menit
+	const intervalMs = options.intervalMs ?? CANDLE_INTERVAL_MS;
+	const timestamp =
+		tickData.bucket ??
+		(tickData.source === "fetch_api"
+			? normalizeTimestamp(tickData.timestamp)
+			: getCandleTimestamp(tickData.timestamp, intervalMs));
+
+	const open = toNumeric(tickData.open) ?? price;
+	const high = toNumeric(tickData.high) ?? price;
+	const low = toNumeric(tickData.low) ?? price;
 	const close = toNumeric(tickData.close) ?? price;
 	const change = toNumeric(tickData.change) ?? toNumeric(tickData.pc);
 	const changePercent =
@@ -144,17 +169,21 @@ export function saveKursTick(tickData) {
 		source,
 	);
 
-	return {
-		timestamp,
-		price,
-		open,
-		high,
-		low,
-		close,
-		change,
-		change_percent: changePercent,
-		source,
-	};
+	return (
+		db
+			.prepare("SELECT * FROM kurs_history WHERE timestamp = ? AND source = ?")
+			.get(timestamp, source) || {
+			timestamp,
+			price,
+			open,
+			high,
+			low,
+			close,
+			change,
+			change_percent: changePercent,
+			source,
+		}
+	);
 }
 
 export function saveKursBatch(records) {
