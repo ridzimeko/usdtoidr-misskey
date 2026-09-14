@@ -4,9 +4,16 @@ import { saveKursBatch, saveKursTick } from "./db.js";
 import { loadState, saveState } from "./state.js";
 import { fetchKursFromWebSocket, parsePrice } from "./websocket.js";
 
+const silentLogger = {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {}
+}
+
 const scraper = createCuimpHttp({
-	descriptor: { browser: "chrome", version: "latest" },
-	logger: { debug: () => {} }, // nonaktifkan logger binary cuimp
+	descriptor: { browser: "chrome", version: "150" },
+	// logger: silentLogger, // nonaktifkan logger binary cuimp
 });
 
 const width = 800;
