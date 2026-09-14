@@ -319,7 +319,7 @@ export async function fetchKursFromWebSocket({
 	);
 	try {
 		const { syncKursWithFetchApi } = await import("./kurs.js");
-		const syncResult = await syncKursWithFetchApi();
+		const syncResult = await syncKursWithFetchApi({ force: true });
 		const latestPrice = syncResult.latestPrice;
 		return {
 			pid: "2138",

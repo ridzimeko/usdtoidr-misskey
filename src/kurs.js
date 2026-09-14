@@ -1,19 +1,24 @@
 import { ChartJSNodeCanvas } from "chartjs-node-canvas";
 import { createCuimpHttp } from "cuimp";
-import { saveKursBatch, saveKursTick } from "./db.js";
-import { loadState, saveState } from "./state.js";
+import { getLatestKursRecord, saveKursBatch, saveKursTick } from "./db.js";
+import {
+	getLastSyncTime,
+	loadState,
+	saveLastSyncTime,
+	saveState,
+} from "./state.js";
 import { fetchKursFromWebSocket, parsePrice } from "./websocket.js";
 
 const silentLogger = {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {}
-}
+	info: () => {},
+	warn: () => {},
+	error: () => {},
+	debug: () => {},
+};
 
 const scraper = createCuimpHttp({
 	descriptor: { browser: "chrome", version: "150" },
-	// logger: silentLogger, // nonaktifkan logger binary cuimp
+	logger: silentLogger,
 });
 
 const width = 800;
@@ -271,16 +276,47 @@ async function generateKursMessage(
 	return { imageBuffer, caption, closePrice: priceStr };
 }
 
+export const DEFAULT_SYNC_OFFSET_MS = 10 * 60 * 1000; // 10 menit
+
+let lastSyncResult = null;
 let activeSyncPromise = null;
 
-export async function syncKursWithFetchApi() {
+export async function syncKursWithFetchApi({
+	offsetMs = DEFAULT_SYNC_OFFSET_MS,
+	force = false,
+} = {}) {
+	const now = Date.now();
+	const lastSyncTime = getLastSyncTime();
+	const timeSinceLastSync = now - lastSyncTime;
+
+	// Lewati jika baru saja disinkronkan kurang dari jeda offset 10 menit
+	if (!force && lastSyncTime > 0 && timeSinceLastSync < offsetMs) {
+		const remainingSec = Math.round((offsetMs - timeSinceLastSync) / 1000);
+		console.log(
+			`ℹ️ [SYNC] Sinkronisasi Fetch API dilewati: sinkronisasi terakhir ${Math.round(timeSinceLastSync / 1000)}s lalu (offset jeda 10 menit, sisa ${remainingSec}s).`,
+		);
+		if (!lastSyncResult) {
+			const latest = getLatestKursRecord();
+			if (latest) {
+				lastSyncResult = {
+					syncedCount: 0,
+					latestPrice: latest.price,
+					highestInArray: latest.high,
+					lowestInArray: latest.low,
+					timestamp: latest.timestamp,
+					raw: null,
+				};
+			}
+		}
+		return lastSyncResult;
+	}
+
 	if (activeSyncPromise) {
 		console.log(
 			"ℹ️ [SYNC] Sinkronisasi Fetch API sedang berjalan, menunggu proses yang ada...",
 		);
 		return activeSyncPromise;
 	}
-
 	activeSyncPromise = (async () => {
 		try {
 			console.log(
@@ -325,7 +361,8 @@ export async function syncKursWithFetchApi() {
 				);
 			}
 
-			return {
+			saveLastSyncTime(Date.now());
+			lastSyncResult = {
 				syncedCount,
 				latestPrice,
 				highestInArray,
@@ -333,6 +370,8 @@ export async function syncKursWithFetchApi() {
 				timestamp: latestPoint ? latestPoint[0] : Date.now(),
 				raw: data,
 			};
+
+			return lastSyncResult;
 		} finally {
 			activeSyncPromise = null;
 		}
@@ -343,8 +382,7 @@ export async function syncKursWithFetchApi() {
 
 export async function getKursReport(options = { isDaily: true, wsData: null }) {
 	if (options.isDaily) {
-		const syncResult = await syncKursWithFetchApi();
-		const data = syncResult.raw;
+		const syncResult = await syncKursWithFetchApi({ force: true });
 		const highestInArray = syncResult.highestInArray;
 		const lowestInArray = syncResult.lowestInArray;
 
@@ -406,8 +444,7 @@ export async function getKursReport(options = { isDaily: true, wsData: null }) {
 	}
 
 	// Jika rekor ATH baru kelipatan 100 terlewati, ambil data chart untuk posting gambar dan sinkronkan ke SQLite
-	const syncResult = await syncKursWithFetchApi();
-	const data = syncResult.raw;
+	const syncResult = await syncKursWithFetchApi({ force: true });
 	const highestInArray = Math.max(syncResult.highestInArray, priceToCheck);
 	const lowestInArray = Math.min(syncResult.lowestInArray, lowPrice);
 
