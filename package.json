@@ -18,7 +18,8 @@
 		"cuimp": "^2.0.0",
 		"dotenv": "^17.4.2",
 		"ky": "^2.0.2",
-		"node-cron": "^4.2.1"
+		"node-cron": "^4.2.1",
+		"ws": "^8.21.3"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16"

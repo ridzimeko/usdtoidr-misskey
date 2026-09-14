@@ -1,3 +1,10 @@
 .env
 node_modules
 state.json
+
+# SQLite database files
+kurs.db*
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

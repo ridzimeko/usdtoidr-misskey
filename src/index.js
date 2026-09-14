@@ -1,48 +1,53 @@
 import "dotenv/config";
 import cron from "node-cron";
 import { postNoteWithMedia, uploadMedia } from "./api.js";
-import { getKursReport } from "./kurs.js";
+import { initDatabase, saveKursTick } from "./db.js";
+import { getKursReport, syncKursWithFetchApi } from "./kurs.js";
 import {
 	getTimezoneDateInfo,
 	isDailyPostedToday,
+	loadState,
 	markDailySuccess,
+	saveState,
 } from "./state.js";
+import { parsePrice, startKursWebSocketWatcher } from "./websocket.js";
 
 const timezone = process.env.CRON_TIMEZONE || "Asia/Jakarta";
 
 // Setup jadwal (Setiap hari Senin-Sabtu pukul 16:00 WIB)
 const dailySchedule = "0 16 * * 1-6";
-// Setup jadwal pengecekan ATH (Setiap jam)
-const hourlySchedule = "0 * * * *";
 
 console.log(`[BOT] Mulai berjalan...`);
 console.log(
 	`[CRON] Jadwal posting harian diatur: ${dailySchedule} (Zona Waktu: ${timezone})`,
 );
-console.log(
-	`[CRON] Jadwal pengecekan ATH diatur: ${hourlySchedule} (Zona Waktu: ${timezone})`,
-);
+console.log("[WS] Pengecekan ATH aktif secara real-time via WebSocket");
 
 export let isDailyTaskRunning = false;
 export let dailyRetryTimeout = null;
+export let isAthTaskRunning = false;
+export let athWatcherStop = null;
 
 export function clearDailyRetryTimeout() {
-	if (dailyRetryTimeout) {
-		clearTimeout(dailyRetryTimeout);
-		dailyRetryTimeout = null;
-	}
+	clearTimeout(dailyRetryTimeout);
+	dailyRetryTimeout = null;
 }
 
 /**
  * Core runner untuk memproses siklus fetch data, upload media, dan posting note.
  */
-async function processKursTask({ isDaily, visibility, taskLabel }) {
+async function processKursTask({
+	isDaily,
+	visibility,
+	taskLabel,
+	wsData = null,
+}) {
 	console.log(
 		`\n[${new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}] Memulai proses ${taskLabel}...`,
 	);
 	try {
 		console.log("-> Mengambil data kurs terbaru...");
-		const report = await getKursReport({ isDaily });
+		const report = await getKursReport({ isDaily, wsData });
 
 		if (!report) {
 			console.log("-> Belum ada rekor ATH baru kelipatan 100. Skip posting.");
@@ -191,12 +196,115 @@ export async function checkAndRunDailyWatchdog(reason = "watchdog") {
 /**
  * Task 2: Execution pengecekan rekor ATH baru
  */
-export async function runAthCheckTask(visibility = "public") {
+export async function runAthCheckTask(visibility = "public", wsData = null) {
 	return await processKursTask({
 		isDaily: false,
 		visibility,
 		taskLabel: "pengecekan ATH",
+		wsData,
 	});
+}
+
+/**
+ * Handler untuk pembaruan harga live dari WebSocket
+ */
+export async function handleLivePriceUpdate(wsData, visibility = "public") {
+	if (isAthTaskRunning) {
+		return;
+	}
+
+	// Simpan data tick harga live ke SQLite
+	try {
+		saveKursTick({
+			timestamp: wsData.timestamp,
+			price: wsData.last_numeric ?? wsData.last,
+			last: wsData.last,
+			last_numeric: wsData.last_numeric,
+			high: wsData.high,
+			low: wsData.low,
+			change: wsData.change ?? wsData.pc,
+			changePercent: wsData.changePercent ?? wsData.pcp,
+			source: "websocket",
+		});
+	} catch (err) {
+		console.error("Gagal menyimpan tick live ke SQLite:", err);
+	}
+
+	const currentPrice = wsData.last_numeric
+		? Number(wsData.last_numeric)
+		: parsePrice(wsData.last);
+	const highPrice = wsData.high ? parsePrice(wsData.high) : currentPrice;
+	const priceToCheck = Math.max(currentPrice, highPrice);
+
+	const state = loadState();
+	const previousAth = state.ath || priceToCheck;
+	const newAth = priceToCheck > previousAth ? priceToCheck : previousAth;
+	const isAthCrossed = Math.floor(newAth / 100) > Math.floor(previousAth / 100);
+
+	if (!isAthCrossed) {
+		if (newAth > previousAth) {
+			state.ath = newAth;
+			saveState(state);
+		}
+		return;
+	}
+
+	isAthTaskRunning = true;
+	try {
+		console.log(
+			`\n🚀 [WS] Rekor ATH baru kelipatan 100 terdeteksi: Rp ${priceToCheck} (sebelumnya Rp ${previousAth})! Memproses posting...`,
+		);
+		await runAthCheckTask(visibility, wsData);
+	} catch (err) {
+		console.error(
+			"❌ Error saat memproses ATH baru dari WebSocket:",
+			err.message || err,
+		);
+	} finally {
+		isAthTaskRunning = false;
+	}
+}
+
+export function startAthWatcher(visibility = "public") {
+	if (athWatcherStop) {
+		return athWatcherStop;
+	}
+	athWatcherStop = startKursWebSocketWatcher({
+		onPrice: (wsData) => handleLivePriceUpdate(wsData, visibility),
+		onDisconnect: (reason) => {
+			console.warn(
+				`⚠️ [WS DISCONNECT] Koneksi WebSocket terputus (${reason}). Menyinkronkan riwayat kurs via Fetch API...`,
+			);
+			syncKursWithFetchApi().catch((err) => {
+				console.error(
+					"Gagal menyinkronkan riwayat kurs via Fetch API saat disconnect:",
+					err,
+				);
+			});
+		},
+		onReconnect: () => {
+			console.log(
+				"🔄 [WS RECONNECT] Terhubung kembali ke WebSocket! Menyinkronkan data yang terlewat via Fetch API...",
+			);
+			syncKursWithFetchApi().catch((err) => {
+				console.error(
+					"Gagal menyinkronkan riwayat kurs via Fetch API saat reconnect:",
+					err,
+				);
+			});
+		},
+		onError: (err) => {
+			console.error("[WS] WebSocket error:", err.message || err);
+		},
+	});
+	return athWatcherStop;
+}
+
+export function stopAthWatcher() {
+	if (athWatcherStop) {
+		athWatcherStop();
+		athWatcherStop = null;
+	}
 }
 
 const VALID_VISIBILITIES = ["public", "home", "followers", "specified"];
@@ -241,6 +349,7 @@ export function parseTestVisibility(args, flag) {
  * Task 3: Execution mode testing melalui CLI (--test, --test-ath)
  */
 export async function runTestTask() {
+	initDatabase();
 	const args = process.argv.slice(2);
 	const isAthTest = args.some(
 		(arg) => arg === "--test-ath" || arg.startsWith("--test-ath="),
@@ -280,22 +389,29 @@ const dailyCron = cron.schedule(
 	},
 );
 
-const athCron = cron.schedule(
-	hourlySchedule,
-	async () => {
-		await runAthCheckTask("public");
-		checkAndRunDailyWatchdog("watchdog-hourly");
-	},
+const watchdogCron = cron.schedule(
+	"0 * * * *",
+	() => checkAndRunDailyWatchdog("watchdog-hourly"),
 	{ timezone },
 );
 
 dailyCron.on("execution:missed", () => checkAndRunDailyWatchdog("cron-missed"));
-athCron.on("execution:missed", () => runAthCheckTask("public"));
+watchdogCron.on("execution:missed", () =>
+	checkAndRunDailyWatchdog("watchdog-missed"),
+);
+
+// Inisialisasi Database SQLite
+initDatabase();
 
 // Cek apakah mode testing diaktifkan dari CLI
 if (process.argv.some((arg) => arg.startsWith("--test"))) {
 	runTestTask();
 } else {
+	// Sinkronisasi riwayat kurs awal saat bot mulai berjalan
+	syncKursWithFetchApi().catch((err) => {
+		console.error("Gagal melakukan sinkronisasi awal riwayat kurs:", err);
+	});
+
 	checkAndRunDailyWatchdog("startup-catchup");
+	startAthWatcher("public");
 }
-console.log("[BOT] Menunggu jadwal berikutnya...");
