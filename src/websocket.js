@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import WebSocket from "ws";
 import { CANDLE_INTERVAL_MS, getCandleTimestamp, saveKursTick } from "./db.js";
+import { formatIdr, formatTimeWib } from "./format.js";
 
 const BASE_WS = "wss://streaming.forexpros.com/echo";
 const ORIGIN = "https://www.investing.com";
@@ -64,25 +65,6 @@ export function parsePrice(val) {
 	if (!val) return 0;
 	return parseFloat(String(val).replace(/,/g, ""));
 }
-export function formatTimeWib(ms) {
-	return new Date(ms)
-		.toLocaleTimeString("id-ID", {
-			timeZone: "Asia/Jakarta",
-			hour: "2-digit",
-			minute: "2-digit",
-			hour12: false,
-		})
-		.replace(/\./g, ":");
-}
-
-export function formatPriceNumber(val) {
-	if (typeof val !== "number" || !Number.isFinite(val)) return "-";
-	return new Intl.NumberFormat("id-ID", {
-		minimumFractionDigits: 1,
-		maximumFractionDigits: 2,
-	}).format(val);
-}
-
 export function logCandleClosed(candle) {
 	const startStr = formatTimeWib(candle.bucket);
 	const endStr = formatTimeWib(candle.bucket + CANDLE_INTERVAL_MS);
@@ -100,7 +82,7 @@ export function logCandleClosed(candle) {
 			: `${((changeVal / candle.open) * 100).toFixed(2)}%`;
 
 	console.log(
-		`[WS CANDLE 15M] ${startStr} - ${endStr} WIB | Open: ${formatPriceNumber(candle.open)} | High: ${formatPriceNumber(candle.high)} | Low: ${formatPriceNumber(candle.low)} | Close: ${formatPriceNumber(candle.close)} (${changeStr} / ${changePctStr}) | Ticks: ${candle.tickCount}`,
+		`[WS CANDLE 15M] ${startStr} - ${endStr} WIB | Open: ${formatIdr(candle.open)} | High: ${formatIdr(candle.high)} | Low: ${formatIdr(candle.low)} | Close: ${formatIdr(candle.close)} (${changeStr} / ${changePctStr}) | Ticks: ${candle.tickCount}`,
 	);
 }
 
@@ -108,243 +90,8 @@ export function logCandleActive(candle) {
 	const startStr = formatTimeWib(candle.bucket);
 	const endStr = formatTimeWib(candle.bucket + CANDLE_INTERVAL_MS);
 	console.log(
-		`[WS 15M] Candle aktif: ${startStr} - ${endStr} WIB (Open: Rp ${formatPriceNumber(candle.open)})`,
+		`[WS 15M] Candle aktif: ${startStr} - ${endStr} WIB (Open: Rp ${formatIdr(candle.open)})`,
 	);
-}
-
-export function logPriceTick(data) {
-	const changeStr =
-		data.pc && data.pcp
-			? ` (${data.pc} / ${data.pcp})`
-			: data.pc
-				? ` (${data.pc})`
-				: "";
-	console.log(
-		`[WS] USD/IDR: Rp ${data.last}${changeStr} | Bid: ${data.bid || "-"} | Ask: ${data.ask || "-"} [${data.time || "-"}]`,
-	);
-}
-
-function connectAndGetPrice(timeoutMs = 15000) {
-	return new Promise((resolve, reject) => {
-		const url = generateWebSocketUrl();
-		const ws = new WebSocket(url, {
-			origin: ORIGIN,
-			headers: {
-				"User-Agent":
-					"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
-				"Accept-Language": "en-US,en;q=0.9",
-				"Cache-Control": "no-cache",
-				Pragma: "no-cache",
-			},
-		});
-
-		let heartbeatTimer = null;
-		let timeoutTimer = null;
-		let settled = false;
-
-		function cleanup() {
-			clearInterval(heartbeatTimer);
-			clearTimeout(timeoutTimer);
-			heartbeatTimer = null;
-			timeoutTimer = null;
-			if (ws) {
-				ws.removeAllListeners();
-				ws.on("error", () => {});
-				if (
-					ws.readyState === WebSocket.OPEN ||
-					ws.readyState === WebSocket.CONNECTING
-				) {
-					try {
-						ws.close();
-					} catch {}
-				}
-			}
-		}
-
-		timeoutTimer = setTimeout(() => {
-			if (settled) return;
-			settled = true;
-			cleanup();
-			reject(
-				new Error(
-					`Timeout (${timeoutMs}ms) menunggu data kurs USD/IDR dari WebSocket`,
-				),
-			);
-		}, timeoutMs);
-
-		ws.on("open", () => {
-			// Menunggu SockJS frame 'o'
-		});
-
-		ws.on("message", (frame) => {
-			if (settled) return;
-			const raw = frame.toString();
-
-			if (raw === "o") {
-				const payload = {
-					_event: "bulk-subscribe",
-					tzID: 8,
-					message: CHANNELS.map((ch) => `${ch}:`).join("%%"),
-				};
-				ws.send(encodeSockJSMessage(payload));
-
-				heartbeatTimer = setInterval(() => {
-					if (ws.readyState === WebSocket.OPEN) {
-						ws.send(
-							encodeSockJSMessage({
-								_event: "heartbeat",
-								data: "h",
-							}),
-						);
-					}
-				}, 5000);
-				return;
-			}
-
-			if (raw === "h") {
-				return;
-			}
-
-			const processMessages = (messages) => {
-				for (const msg of messages) {
-					const parsed = parseApplicationMessage(msg);
-					if (parsed.type === "channel" && parsed.channel === "pid-2138") {
-						const data = parsed.data;
-						logPriceTick(data);
-
-						settled = true;
-						cleanup();
-						try {
-							saveKursTick({
-								timestamp: data.timestamp,
-								price: data.last_numeric ?? data.last,
-								last: data.last,
-								last_numeric: data.last_numeric,
-								high: data.high,
-								low: data.low,
-								change: data.pc,
-								changePercent: data.pcp,
-								source: "websocket",
-							});
-						} catch (err) {
-							console.error("Gagal menyimpan tick ke SQLite:", err);
-						}
-						resolve({
-							pid: data.pid,
-							last: data.last,
-							bid: data.bid,
-							ask: data.ask,
-							change: data.pc,
-							changePercent: data.pcp,
-							time: data.time,
-							last_numeric: data.last_numeric,
-							high: data.high,
-							low: data.low,
-							timestamp: data.timestamp,
-							raw: data,
-						});
-						return true;
-					}
-				}
-				return false;
-			};
-
-			if (raw.startsWith("a")) {
-				try {
-					const messages = JSON.parse(raw.slice(1));
-					if (Array.isArray(messages)) {
-						processMessages(messages);
-					}
-				} catch {
-					// Abaikan parsing error pada frame SockJS yang tidak valid
-				}
-				return;
-			}
-
-			if (raw.startsWith("m")) {
-				try {
-					const message = JSON.parse(raw.slice(1));
-					processMessages([message]);
-				} catch {
-					// Abaikan parsing error
-				}
-			}
-		});
-
-		ws.on("error", (err) => {
-			if (settled) return;
-			settled = true;
-			cleanup();
-			reject(err);
-		});
-
-		ws.on("close", (code, reason) => {
-			if (settled) return;
-			settled = true;
-			cleanup();
-			reject(
-				new Error(
-					`WebSocket tertutup tidak terduga (code: ${code}, reason: ${reason || "none"})`,
-				),
-			);
-		});
-	});
-}
-
-export async function fetchKursFromWebSocket({
-	timeoutMs = 15000,
-	maxRetries = 3,
-	retryDelay = 3000,
-} = {}) {
-	let attempts = 0;
-	let lastError = null;
-
-	while (attempts < maxRetries) {
-		attempts++;
-		try {
-			const data = await connectAndGetPrice(timeoutMs);
-			return data;
-		} catch (err) {
-			lastError = err;
-			if (attempts < maxRetries) {
-				console.warn(
-					`⚠️ [WS RETRY ${attempts}/${maxRetries}] Gagal mengambil data WebSocket: ${err.message}. Mencoba lagi dalam ${Math.round(retryDelay / 1000)} detik...`,
-				);
-				await new Promise((resolve) => setTimeout(resolve, retryDelay));
-			}
-		}
-	}
-	console.warn(
-		`⚠️ [WS] Gagal mengambil data via WebSocket (setelah ${maxRetries}x percobaan: ${lastError?.message || lastError}). Melakukan fallback & sinkronisasi menggunakan Fetch API...`,
-	);
-	try {
-		const { syncKursWithFetchApi } = await import("./kurs.js");
-		const syncResult = await syncKursWithFetchApi({ force: true });
-		const latestPrice = syncResult.latestPrice;
-		return {
-			pid: "2138",
-			last: String(latestPrice),
-			last_numeric: latestPrice,
-			bid: String(latestPrice),
-			ask: String(latestPrice),
-			change: "0",
-			changePercent: "0%",
-			time: new Date(syncResult.timestamp).toTimeString().slice(0, 8),
-			high: syncResult.highestInArray,
-			low: syncResult.lowestInArray,
-			timestamp: syncResult.timestamp,
-			raw: syncResult.raw,
-			source: "fetch_api_fallback",
-		};
-	} catch (fallbackErr) {
-		console.error(
-			"❌ [WS FALLBACK] Gagal sinkronisasi fallback Fetch API:",
-			fallbackErr,
-		);
-		throw new Error(
-			`Gagal mengambil data kurs dari WebSocket (${lastError?.message}) dan fallback Fetch API gagal (${fallbackErr.message})`,
-		);
-	}
 }
 
 export function startKursWebSocketWatcher({

@@ -1,13 +1,24 @@
 import { ChartJSNodeCanvas } from "chartjs-node-canvas";
 import { createCuimpHttp } from "cuimp";
-import { getLatestKursRecord, saveKursBatch, saveKursTick } from "./db.js";
+import {
+	getKursHistory,
+	getLatestKursRecord,
+	saveKursBatch,
+	saveKursTick,
+} from "./db.js";
+import {
+	formatDateTimeWib,
+	formatDateWib,
+	formatIdr,
+	formatTimeWib,
+} from "./format.js";
 import {
 	getLastSyncTime,
 	loadState,
 	saveLastSyncTime,
 	saveState,
 } from "./state.js";
-import { fetchKursFromWebSocket, parsePrice } from "./websocket.js";
+import { parsePrice } from "./websocket.js";
 
 const silentLogger = {
 	info: () => {},
@@ -95,18 +106,10 @@ async function generateKursMessage(
 	const unixtime = latest[0];
 	const close = latestPrice ?? latest[4];
 
-	const priceStr = new Intl.NumberFormat("id-ID", {
-		minimumFractionDigits: 2,
-	}).format(close);
-	const highStr = new Intl.NumberFormat("id-ID", {
-		minimumFractionDigits: 2,
-	}).format(highestInArray);
-	const lowStr = new Intl.NumberFormat("id-ID", {
-		minimumFractionDigits: 2,
-	}).format(lowestInArray);
-	const athStr = new Intl.NumberFormat("id-ID", {
-		minimumFractionDigits: 2,
-	}).format(state.ath);
+	const priceStr = formatIdr(close);
+	const highStr = formatIdr(highestInArray);
+	const lowStr = formatIdr(lowestInArray);
+	const athStr = formatIdr(state.ath);
 
 	const chartData = data.data.slice(-50);
 	let lastDateStr = null;
@@ -114,19 +117,8 @@ async function generateKursMessage(
 		const date = new Date(d[0]);
 		// Tampilkan label setiap 10 data agar tidak penuh
 		if (index % 10 === 0) {
-			const dateDayStr = date.toLocaleDateString("id-ID", {
-				day: "2-digit",
-				month: "short",
-				timeZone: "Asia/Jakarta",
-			});
-			const timeStr = date
-				.toLocaleTimeString("id-ID", {
-					hour: "2-digit",
-					minute: "2-digit",
-					timeZone: "Asia/Jakarta",
-					hour12: false,
-				})
-				.replace(/\./g, ":");
+			const dateDayStr = formatDateWib(date);
+			const timeStr = formatTimeWib(date);
 
 			// Tampilkan tanggal jika label pertama atau ada pergantian hari
 			if (lastDateStr === null || dateDayStr !== lastDateStr) {
@@ -181,16 +173,7 @@ async function generateKursMessage(
 
 			ctx.fillStyle = "#9aa0a6";
 			ctx.font = "16px sans-serif";
-			const dateStr = new Date(unixtime)
-				.toLocaleString("id-ID", {
-					day: "numeric",
-					month: "short",
-					year: "numeric",
-					hour: "numeric",
-					minute: "2-digit",
-					timeZone: "Asia/Jakarta",
-				})
-				.replace(/\./g, ":");
+			const dateStr = formatDateTimeWib(unixtime);
 			ctx.fillText(`${dateStr} WIB · @usdtoidr@misskey.id`, 30, 190);
 			ctx.restore();
 		},
@@ -380,11 +363,40 @@ export async function syncKursWithFetchApi({
 	return activeSyncPromise;
 }
 
+/**
+ * Ambil titik data chart murni dari database SQLite
+ */
+export function getChartDataFromDatabase(limit = 160) {
+	const history = getKursHistory(limit);
+	if (history.length === 0) {
+		throw new Error(
+			"Data riwayat kurs di SQLite kosong. Pastikan bot sudah tersinkronisasi saat startup.",
+		);
+	}
+
+	const points = history.map((h) => [
+		h.timestamp,
+		h.open ?? h.price,
+		h.high ?? h.price,
+		h.low ?? h.price,
+		h.close ?? h.price,
+		0,
+		0,
+	]);
+	const highestInArray = Math.max(...points.map((d) => d[2]));
+	const lowestInArray = Math.min(...points.map((d) => d[3]));
+
+	return {
+		data: { data: points },
+		highestInArray,
+		lowestInArray,
+	};
+}
+
 export async function getKursReport(options = { isDaily: true, wsData: null }) {
 	if (options.isDaily) {
-		const syncResult = await syncKursWithFetchApi({ force: true });
-		const highestInArray = syncResult.highestInArray;
-		const lowestInArray = syncResult.lowestInArray;
+		const { data, highestInArray, lowestInArray } =
+			getChartDataFromDatabase(160);
 
 		const state = loadState();
 
@@ -403,24 +415,40 @@ export async function getKursReport(options = { isDaily: true, wsData: null }) {
 		return result;
 	}
 
-	// Pengecekan ATH menggunakan WebSocket
-	const wsData = options.wsData || (await fetchKursFromWebSocket());
-
-	// Simpan data tick ke SQLite
-	try {
-		saveKursTick({
-			timestamp: wsData.timestamp,
-			price: wsData.last_numeric ?? wsData.last,
-			last: wsData.last,
-			last_numeric: wsData.last_numeric,
-			high: wsData.high,
-			low: wsData.low,
-			change: wsData.change ?? wsData.pc,
-			changePercent: wsData.changePercent ?? wsData.pcp,
-			source: "websocket",
-		});
-	} catch (err) {
-		console.error("Gagal menyimpan tick WebSocket ke SQLite:", err);
+	// Pengecekan ATH
+	let wsData = options.wsData;
+	if (!wsData) {
+		const latest = getLatestKursRecord();
+		if (!latest) {
+			throw new Error(
+				"Data kurs di SQLite kosong. Pastikan bot sudah tersinkronisasi saat startup.",
+			);
+		}
+		wsData = {
+			timestamp: latest.timestamp,
+			last: latest.price,
+			last_numeric: latest.price,
+			high: latest.high,
+			low: latest.low,
+			source: latest.source,
+		};
+	} else {
+		// Simpan data tick ke SQLite jika dipassing dari watcher live
+		try {
+			saveKursTick({
+				timestamp: wsData.timestamp,
+				price: wsData.last_numeric ?? wsData.last,
+				last: wsData.last,
+				last_numeric: wsData.last_numeric,
+				high: wsData.high,
+				low: wsData.low,
+				change: wsData.change ?? wsData.pc,
+				changePercent: wsData.changePercent ?? wsData.pcp,
+				source: "websocket",
+			});
+		} catch (err) {
+			console.error("Gagal menyimpan tick WebSocket ke SQLite:", err);
+		}
 	}
 
 	const currentPrice = wsData.last_numeric
@@ -443,11 +471,14 @@ export async function getKursReport(options = { isDaily: true, wsData: null }) {
 		return null;
 	}
 
-	// Jika rekor ATH baru kelipatan 100 terlewati, ambil data chart untuk posting gambar dan sinkronkan ke SQLite
-	const syncResult = await syncKursWithFetchApi({ force: true });
-	const highestInArray = Math.max(syncResult.highestInArray, priceToCheck);
-	const lowestInArray = Math.min(syncResult.lowestInArray, lowPrice);
-
+	// Jika rekor ATH baru kelipatan 100 terlewati, ambil data chart untuk posting gambar
+	const {
+		data,
+		highestInArray: highestFromChart,
+		lowestInArray: lowestFromChart,
+	} = getChartDataFromDatabase(160);
+	const highestInArray = Math.max(highestFromChart, priceToCheck);
+	const lowestInArray = Math.min(lowestFromChart, lowPrice);
 	const result = await generateKursMessage(
 		data,
 		isAthCrossed,
@@ -458,5 +489,3 @@ export async function getKursReport(options = { isDaily: true, wsData: null }) {
 	);
 	return result;
 }
-
-export { fetchKursFromWebSocket };
