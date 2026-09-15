@@ -135,11 +135,12 @@ async function generateKursMessage(
 
 	const minPrice = Math.min(...closeData);
 	const maxPrice = Math.max(...closeData);
-	let yMin = Math.floor(minPrice / 100) * 100;
-	let yMax = Math.ceil(maxPrice / 100) * 100;
+	const Y_STEP = 50;
+	let yMin = Math.floor(minPrice / Y_STEP) * Y_STEP;
+	let yMax = Math.ceil(maxPrice / Y_STEP) * Y_STEP;
 
-	// Pastikan sumbu-Y memiliki minimal 3-4 rentang (4-5 item tick) berjarak 100 Rupiah
-	const steps = Math.round((yMax - yMin) / 100);
+	// Pastikan sumbu-Y memiliki minimal 3 rentang (4 item tick) berjarak 50 Rupiah
+	const steps = Math.round((yMax - yMin) / Y_STEP);
 	const minSteps = 3; // Minimal 3 rentang = 4 item tick pada sumbu Y
 
 	if (steps < minSteps) {
@@ -147,8 +148,8 @@ async function generateKursMessage(
 		const padBottom = Math.ceil(needed / 2);
 		const padTop = Math.floor(needed / 2);
 
-		yMin -= padBottom * 100;
-		yMax += padTop * 100;
+		yMin -= padBottom * Y_STEP;
+		yMax += padTop * Y_STEP;
 	}
 
 	const customTextPlugin = {
@@ -216,7 +217,7 @@ async function generateKursMessage(
 					max: yMax,
 					ticks: {
 						color: "#9aa0a6",
-						stepSize: 100,
+						stepSize: Y_STEP,
 						callback: (value) => new Intl.NumberFormat("id-ID").format(value),
 					},
 					grid: { color: "#3c4043", drawBorder: false },
