@@ -2,10 +2,27 @@
 
 Bot otomatis berbasis Node.js yang memantau dan memposting informasi kurs **USD (Dolar AS) ke IDR (Rupiah Indonesia)** beserta grafik pergerakan harga terbaru ke platform **Misskey**.
 
+## ⚙️ Cara Kerja Bot
+
+1. **Koneksi WebSocket Real-Time (24/7)**:
+   - Bot terhubung ke WebSocket streaming Investing.com untuk memantau pergerakan harga USD/IDR secara langsung.
+   - Dilengkapi *heartbeat* otomatis dan timer *watchdog* anti-zombie untuk memulihkan koneksi jika jaringan terputus.
+
+2. **Penyimpanan Riwayat Kurs ke SQLite (Candle 15 Menit)**:
+   - Setiap tick harga dirangkum (*bucketed*) menjadi candle **OHLC (Open, High, Low, Close)** per interval 15 menit.
+   - Disimpan secara persisten ke database SQLite lokal (`data/kurs.db`) menggunakan kueri *upsert*, menjaga database tetap ramping (< 5 MB/tahun) dan bebas pembengkakan.
+
+3. **Pengecekan Rekor ATH Instan**:
+   - Setiap perubahan harga langsung dievaluasi di memori. Jika kurs menembus rekor ATH baru kelipatan 100 (contoh: Rp 17.600 $\rightarrow$ Rp 17.700), bot langsung memposting notifikasi rekor baru ke Misskey.
+
+4. **Laporan Penutupan Harian & Auto-Sync**:
+   - **Posting Harian (Senin–Sabtu 16:00 WIB)**: Membuat gambar grafik chart dan caption laporan penutupan harian murni langsung dari database SQLite secara *offline-ready*.
+   - **Sinkronisasi Fetch API**: Saat bot pertama kali dijalankan atau jika WebSocket sempat terputus lebih dari 15 menit, sistem otomatis mengambil 160 titik candle historis via Fetch API untuk menambal data yang terlewat.
+
 ## 🛠️ Persyaratan Sistem
 
-- **Node.js**: v18+ atau versi lebih baru
-- **pnpm**: v10+ (atau npm/yarn)
+- **Node.js**: v24+ atau versi lebih baru
+- **pnpm**: v10+ (atau npm/yarn/bun)
 
 ---
 
@@ -47,7 +64,7 @@ Bot akan berjalan secara berkelanjutan di latar belakang sesuai jadwal cron:
 ```bash
 pnpm start
 # atau
-node src/index.js
+npm run start
 ```
 
 ### Mode Testing (CLI)
@@ -59,7 +76,7 @@ Untuk melakukan pengujian posting note tanpa menunggu jadwal cron:
   ```bash
   pnpm test
   # atau
-  node src/index.js --test
+  npm run test
   ```
 
 - **Test Pengecekan ATH (default visibility: `specified`)**:
@@ -68,8 +85,6 @@ Untuk melakukan pengujian posting note tanpa menunggu jadwal cron:
   pnpm run test-ath
   # atau
   pnpm run test:ath
-  # atau
-  node src/index.js --test-ath
   ```
 
 ### Parameter Custom Visibility pada Mode Testing
@@ -82,10 +97,6 @@ Secara default, mode testing menggunakan visibilitas `specified` agar pengujian 
   # Menggunakan pnpm
   pnpm test public
   pnpm test home
-
-  # Menggunakan node langsung
-  node src/index.js --test public
-  node src/index.js --test=public
   ```
 
 - **Test Pengecekan ATH dengan Visibilitas Kustom**:
@@ -94,10 +105,6 @@ Secara default, mode testing menggunakan visibilitas `specified` agar pengujian 
   # Menggunakan pnpm
   pnpm run test-ath public
   pnpm run test-ath specified
-
-  # Menggunakan node langsung
-  node src/index.js --test-ath public
-  node src/index.js --test-ath=specified
   ```
 ---
 

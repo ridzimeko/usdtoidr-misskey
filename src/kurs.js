@@ -260,7 +260,7 @@ async function generateKursMessage(
 	return { imageBuffer, caption, closePrice: priceStr };
 }
 
-export const DEFAULT_SYNC_OFFSET_MS = 10 * 60 * 1000; // 10 menit
+export const DEFAULT_SYNC_OFFSET_MS = 15 * 60 * 1000; // 10 menit
 
 let lastSyncResult = null;
 let activeSyncPromise = null;
