@@ -1,5 +1,5 @@
 import { ChartJSNodeCanvas } from "chartjs-node-canvas";
-import { createCuimpHttp } from "cuimp";
+import { fetch as wreqFetch } from "wreq-js";
 import {
 	getKursHistory,
 	getLatestKursRecord,
@@ -19,18 +19,6 @@ import {
 	saveState,
 } from "./state.js";
 import { parsePrice } from "./websocket.js";
-
-const silentLogger = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-};
-
-const scraper = createCuimpHttp({
-	descriptor: { browser: "chrome", version: "150" },
-	logger: silentLogger,
-});
 
 const width = 800;
 const height = 400;
@@ -53,11 +41,13 @@ export async function getKursData() {
 	while (attempts < maxRetries && !success) {
 		attempts++;
 		try {
-			const response = await scraper.get(url);
-			let parsed = response.data;
-			if (typeof parsed === "string") {
-				parsed = JSON.parse(parsed);
+			const response = await wreqFetch(url, {
+				browser: "chrome_149",
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP error ${response.status}`);
 			}
+			const parsed = await response.json();
 
 			if (parsed?.data && parsed.data.length > 0) {
 				data = parsed;

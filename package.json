@@ -18,10 +18,10 @@
 	"packageManager": "pnpm@10.33.2",
 	"dependencies": {
 		"chartjs-node-canvas": "^5.0.0",
-		"cuimp": "^2.0.0",
 		"dotenv": "^17.4.2",
 		"ky": "^2.0.2",
 		"node-cron": "^4.2.1",
+		"wreq-js": "^3.2.0",
 		"ws": "^8.21.3"
 	},
 	"devDependencies": {
