@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import WebSocket from "ws";
-import { CANDLE_INTERVAL_MS, getCandleTimestamp, saveKursTick } from "./db.js";
-import { formatIdr, formatTimeWib } from "./format.js";
+import { formatIdr, formatTimeWib } from "../lib/format.js";
+import {
+	CANDLE_INTERVAL_MS,
+	getCandleTimestamp,
+	saveKursTick,
+} from "../storage/db.js";
 
 const BASE_WS = "wss://streaming.forexpros.com/echo";
 const ORIGIN = "https://www.investing.com";

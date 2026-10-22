@@ -1,5 +1,5 @@
 import ky, { isHTTPError } from "ky";
-import { loadState, saveState } from "./state.js";
+import { loadState, saveState } from "../storage/state.js";
 
 function apiClient() {
 	const baseUrl = process.env.MISSKEY_API_BASE_URL;

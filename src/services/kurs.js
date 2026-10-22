@@ -1,23 +1,23 @@
 import { ChartJSNodeCanvas } from "chartjs-node-canvas";
 import { fetch as wreqFetch } from "wreq-js";
 import {
-	getKursHistory,
-	getLatestKursRecord,
-	saveKursBatch,
-	saveKursTick,
-} from "./db.js";
-import {
 	formatDateTimeWib,
 	formatDateWib,
 	formatIdr,
 	formatTimeWib,
-} from "./format.js";
+} from "../lib/format.js";
+import {
+	getKursHistory,
+	getLatestKursRecord,
+	saveKursBatch,
+	saveKursTick,
+} from "../storage/db.js";
 import {
 	getLastSyncTime,
 	loadState,
 	saveLastSyncTime,
 	saveState,
-} from "./state.js";
+} from "../storage/state.js";
 import { parsePrice } from "./websocket.js";
 
 const width = 800;

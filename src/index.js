@@ -1,14 +1,14 @@
 import "dotenv/config";
 import cron from "node-cron";
 import { isTestMode, runTestTask } from "./cli.js";
-import { initDatabase } from "./db.js";
-import { syncKursWithFetchApi } from "./kurs.js";
+import { syncKursWithFetchApi } from "./services/kurs.js";
+import { startKursWebSocketWatcher } from "./services/websocket.js";
+import { initDatabase } from "./storage/db.js";
 import {
 	checkAndRunDailyWatchdog,
 	handleLivePriceUpdate,
 	runDailyWithRetry,
 } from "./tasks.js";
-import { startKursWebSocketWatcher } from "./websocket.js";
 
 const timezone = process.env.CRON_TIMEZONE || "Asia/Jakarta";
 const dailySchedule = "0 16 * * 1-6"; // Setiap hari Senin-Sabtu pukul 16:00 WIB

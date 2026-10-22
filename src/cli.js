@@ -1,4 +1,5 @@
-import { initDatabase } from "./db.js";
+import { syncKursWithFetchApi } from "./services/kurs.js";
+import { initDatabase } from "./storage/db.js";
 import { runAthCheckTask, runDailyTask } from "./tasks.js";
 
 export const VALID_VISIBILITIES = ["public", "home", "followers", "specified"];
@@ -51,6 +52,14 @@ export async function runTestTask({
 	exitOnDone = true,
 } = {}) {
 	initDatabase();
+
+	try {
+		await syncKursWithFetchApi({ offsetMs: 30 * 60 * 1000 });
+	} catch (err) {
+		console.warn(
+			`⚠️ [TEST] Gagal sinkronisasi data kurs terbaru: ${err.message}. Menggunakan data cache database.`,
+		);
+	}
 
 	const isAthTest = args.some(
 		(arg) => arg === "--test-ath" || arg.startsWith("--test-ath="),

@@ -1,14 +1,14 @@
-import { postNoteWithMedia, uploadMedia } from "./api.js";
-import { saveKursTick } from "./db.js";
-import { getKursReport } from "./kurs.js";
+import { postNoteWithMedia, uploadMedia } from "./lib/misskey.js";
+import { getKursReport } from "./services/kurs.js";
+import { parsePrice } from "./services/websocket.js";
+import { saveKursTick } from "./storage/db.js";
 import {
 	getTimezoneDateInfo,
 	isDailyPostedToday,
 	loadState,
 	markDailySuccess,
 	saveState,
-} from "./state.js";
-import { parsePrice } from "./websocket.js";
+} from "./storage/state.js";
 
 const DEFAULT_TIMEZONE = process.env.CRON_TIMEZONE || "Asia/Jakarta";
 
