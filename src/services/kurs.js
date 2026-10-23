@@ -37,7 +37,7 @@ export async function getKursData() {
 		attempts++;
 		try {
 			const response = await wreqFetch(url, {
-				browser: "chrome_149",
+				browser: "firefox_151",
 			});
 			if (!response.ok) {
 				throw new Error(`HTTP error ${response.status}`);
