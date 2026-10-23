@@ -21,10 +21,10 @@
 	"dependencies": {
 		"chartjs-node-canvas": "^5.0.0",
 		"dotenv": "^17.4.2",
-		"ky": "^2.0.2",
-		"node-cron": "^4.2.1",
+		"ky": "^2.2.0",
+		"node-cron": "^4.6.0",
 		"wreq-js": "^3.2.0",
-		"ws": "^8.21.3"
+		"ws": "^8.22.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.16"
