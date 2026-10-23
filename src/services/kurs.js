@@ -1,11 +1,6 @@
 import { ChartJSNodeCanvas } from "chartjs-node-canvas";
 import { fetch as wreqFetch } from "wreq-js";
-import {
-	formatDateTimeWib,
-	formatDateWib,
-	formatIdr,
-	formatTimeWib,
-} from "../lib/format.js";
+import { formatDateTimeWib, formatDateWib, formatIdr } from "../lib/format.js";
 import {
 	getKursHistory,
 	getLatestKursRecord,
@@ -29,7 +24,7 @@ const chartJSNodeCanvas = new ChartJSNodeCanvas({
 });
 
 const url =
-	"https://api.investing.com/api/financialdata/2138/historical/chart/?interval=PT15M&pointscount=160";
+	"https://api.investing.com/api/financialdata/2138/historical/chart/?interval=PT1H&pointscount=160";
 
 export async function getKursData() {
 	let data = null;
@@ -101,23 +96,21 @@ async function generateKursMessage(
 	const lowStr = formatIdr(lowestInArray);
 	const athStr = formatIdr(state.ath);
 
-	const chartData = data.data.slice(-50);
-	let lastDateStr = null;
+	const oneWeekAgo = unixtime - 7 * 24 * 60 * 60 * 1000;
+	const filtered = data.data.filter((d) => d[0] >= oneWeekAgo);
+	const chartData = filtered.length >= 10 ? filtered : data.data;
+
+	// Bagi label secara merata (maksimal 6 titik label sepanjang 1 minggu)
+	const numLabels = Math.min(6, chartData.length);
+	const labelIndices = new Set();
+	for (let i = 0; i < numLabels; i++) {
+		const idx = Math.round((i * (chartData.length - 1)) / (numLabels - 1));
+		labelIndices.add(idx);
+	}
+
 	const labels = chartData.map((d, index) => {
-		const date = new Date(d[0]);
-		// Tampilkan label setiap 10 data agar tidak penuh
-		if (index % 10 === 0) {
-			const dateDayStr = formatDateWib(date);
-			const timeStr = formatTimeWib(date);
-
-			// Tampilkan tanggal jika label pertama atau ada pergantian hari
-			if (lastDateStr === null || dateDayStr !== lastDateStr) {
-				lastDateStr = dateDayStr;
-				return `${dateDayStr} ${timeStr}`;
-			}
-
-			// Jika hari masih sama, tampilkan jam saja
-			return timeStr;
+		if (labelIndices.has(index)) {
+			return formatDateWib(d[0]);
 		}
 		return "";
 	});
@@ -196,7 +189,6 @@ async function generateKursMessage(
 						color: "#9aa0a6",
 						maxRotation: 0,
 						autoSkip: false,
-						labelOffset: 25,
 					},
 					grid: { display: false },
 					border: { display: false },
@@ -314,7 +306,7 @@ export async function syncKursWithFetchApi({
 				source: "fetch_api",
 			}));
 
-			const syncedCount = saveKursBatch(records);
+			const syncedCount = saveKursBatch(records, { replaceSource: true });
 			console.log(
 				`✅ [SYNC] Berhasil menyinkronkan ${syncedCount} titik kurs ke SQLite.`,
 			);
@@ -358,7 +350,10 @@ export async function syncKursWithFetchApi({
  * Ambil titik data chart murni dari database SQLite
  */
 export function getChartDataFromDatabase(limit = 160) {
-	const history = getKursHistory(limit);
+	let history = getKursHistory(limit, "fetch_api");
+	if (history.length === 0) {
+		history = getKursHistory(limit);
+	}
 	if (history.length === 0) {
 		throw new Error(
 			"Data riwayat kurs di SQLite kosong. Pastikan bot sudah tersinkronisasi saat startup.",

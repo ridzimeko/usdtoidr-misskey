@@ -186,7 +186,7 @@ export function saveKursTick(tickData, options = {}) {
 	);
 }
 
-export function saveKursBatch(records) {
+export function saveKursBatch(records, options = {}) {
 	if (!Array.isArray(records) || records.length === 0) {
 		return 0;
 	}
@@ -197,6 +197,10 @@ export function saveKursBatch(records) {
 	db.exec("BEGIN");
 	let savedCount = 0;
 	try {
+		if (options.replaceSource) {
+			const source = records[0]?.source || "fetch_api";
+			db.prepare("DELETE FROM kurs_history WHERE source = ?").run(source);
+		}
 		for (const rec of records) {
 			const timestamp = normalizeTimestamp(rec.timestamp);
 			const price =
@@ -250,14 +254,22 @@ export function getLatestKursRecord() {
 	return stmt.get() || null;
 }
 
-export function getKursHistory(limit = 160) {
+export function getKursHistory(limit = 160, source = null) {
 	const db = getDb();
-	const stmt = db.prepare(`
+	const stmt = db.prepare(
+		source
+			? `
+		SELECT * FROM (
+			SELECT * FROM kurs_history WHERE source = ? ORDER BY timestamp DESC LIMIT ?
+		) ORDER BY timestamp ASC
+	`
+			: `
 		SELECT * FROM (
 			SELECT * FROM kurs_history ORDER BY timestamp DESC LIMIT ?
 		) ORDER BY timestamp ASC
-	`);
-	return stmt.all(limit);
+	`,
+	);
+	return source ? stmt.all(source, limit) : stmt.all(limit);
 }
 
 export function getKursCount() {

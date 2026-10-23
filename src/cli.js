@@ -41,7 +41,10 @@ export function parseTestVisibility(args, flag) {
 }
 
 export function isTestMode(args = process.argv.slice(2)) {
-	return args.some((arg) => arg.startsWith("--test"));
+	return args.some(
+		(arg) =>
+			arg.startsWith("--test") || arg === "--local" || arg === "--dry-run",
+	);
 }
 
 /**
@@ -61,6 +64,9 @@ export async function runTestTask({
 		);
 	}
 
+	const isLocal = args.some(
+		(arg) => arg === "--local" || arg === "--test-local" || arg === "--dry-run",
+	);
 	const isAthTest = args.some(
 		(arg) => arg === "--test-ath" || arg.startsWith("--test-ath="),
 	);
@@ -76,14 +82,14 @@ export async function runTestTask({
 
 	if (isAthTest) {
 		console.log(
-			`[BOT] Mode Testing Aktif! Menjalankan Pengecekan ATH (visibility: ${visibility})`,
+			`[BOT] Mode Testing ${isLocal ? "Lokal " : ""}Aktif! Menjalankan Pengecekan ATH${isLocal ? " (tanpa kirim ke Misskey)" : ` (visibility: ${visibility})`}`,
 		);
-		await runAthCheckTask(visibility);
+		await runAthCheckTask(visibility, null, { dryRun: isLocal });
 	} else {
 		console.log(
-			`[BOT] Mode Testing Aktif! Menjalankan Posting Harian (visibility: ${visibility})`,
+			`[BOT] Mode Testing ${isLocal ? "Lokal " : ""}Aktif! Menjalankan Posting Harian${isLocal ? " (tanpa kirim ke Misskey)" : ` (visibility: ${visibility})`}`,
 		);
-		await runDailyTask(visibility);
+		await runDailyTask(visibility, undefined, { dryRun: isLocal });
 	}
 
 	if (exitOnDone) {

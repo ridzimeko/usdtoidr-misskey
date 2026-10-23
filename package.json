@@ -6,7 +6,9 @@
 	"scripts": {
 		"start": "node src/index.js",
 		"test": "node src/index.js --test",
+		"test:local": "node src/index.js --test --local",
 		"test-ath": "node src/index.js --test-ath",
+		"test-ath:local": "node src/index.js --test-ath --local",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write ."

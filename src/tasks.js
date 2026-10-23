@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { postNoteWithMedia, uploadMedia } from "./lib/misskey.js";
 import { getKursReport } from "./services/kurs.js";
 import { parsePrice } from "./services/websocket.js";
@@ -31,6 +32,7 @@ export async function processKursTask({
 	visibility,
 	taskLabel,
 	wsData = null,
+	dryRun = false,
 }) {
 	console.log(
 		`\n[${new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}] Memulai proses ${taskLabel}...`,
@@ -46,6 +48,18 @@ export async function processKursTask({
 
 		const { imageBuffer, caption, closePrice } = report;
 		console.log(`-> Berhasil! Kurs saat ini: Rp ${closePrice}`);
+
+		if (dryRun) {
+			fs.writeFileSync("test-chart.png", imageBuffer);
+			console.log(
+				`-> [LOCAL] Gambar grafik berhasil dibuat dan disimpan ke test-chart.png (${imageBuffer.length} bytes)`,
+			);
+			console.log(
+				"-> [LOCAL] Mode test lokal aktif: melewati upload dan posting ke Misskey.",
+			);
+			console.log(`-> [LOCAL] Pratinjau caption:\n---\n${caption}\n---`);
+			return true;
+		}
 
 		console.log("-> Mengupload gambar ke Misskey...");
 		const uploadResult = await uploadMedia(
@@ -85,14 +99,17 @@ export async function processKursTask({
 export async function runDailyTask(
 	visibility = "public",
 	timezone = DEFAULT_TIMEZONE,
+	options = {},
 ) {
+	const dryRun = Boolean(options.dryRun || options.local);
 	const success = await processKursTask({
 		isDaily: true,
 		visibility,
 		taskLabel: "posting harian",
+		dryRun,
 	});
 
-	if (success && visibility === "public") {
+	if (success && visibility === "public" && !dryRun) {
 		markDailySuccess(getTimezoneDateInfo(new Date(), timezone).dateString);
 	}
 
@@ -191,12 +208,18 @@ export async function checkAndRunDailyWatchdog(
 /**
  * Task 2: Execution pengecekan rekor ATH baru
  */
-export async function runAthCheckTask(visibility = "public", wsData = null) {
+export async function runAthCheckTask(
+	visibility = "public",
+	wsData = null,
+	options = {},
+) {
+	const dryRun = Boolean(options.dryRun || options.local);
 	return await processKursTask({
 		isDaily: false,
 		visibility,
 		taskLabel: "pengecekan ATH",
 		wsData,
+		dryRun,
 	});
 }
 

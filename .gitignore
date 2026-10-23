@@ -13,3 +13,6 @@ kurs.db*
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Local test output
+test-chart*.png
