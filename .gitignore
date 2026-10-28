@@ -16,3 +16,6 @@ kurs.db*
 
 # Local test output
 test-chart*.png
+
+# Graphify output
+graphify-out/
