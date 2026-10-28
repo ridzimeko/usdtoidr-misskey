@@ -186,66 +186,6 @@ export function saveKursTick(tickData, options = {}) {
 	);
 }
 
-export function saveKursBatch(records, options = {}) {
-	if (!Array.isArray(records) || records.length === 0) {
-		return 0;
-	}
-
-	const db = getDb();
-	const stmt = db.prepare(UPSERT_QUERY);
-
-	db.exec("BEGIN");
-	let savedCount = 0;
-	try {
-		if (options.replaceSource) {
-			const source = records[0]?.source || "fetch_api";
-			db.prepare("DELETE FROM kurs_history WHERE source = ?").run(source);
-		}
-		for (const rec of records) {
-			const timestamp = normalizeTimestamp(rec.timestamp);
-			const price =
-				toNumeric(rec.price) ??
-				toNumeric(rec.close) ??
-				toNumeric(rec.last_numeric) ??
-				toNumeric(rec.last);
-
-			if (price === null) continue;
-
-			const open = toNumeric(rec.open);
-			const high = toNumeric(rec.high);
-			const low = toNumeric(rec.low);
-			const close = toNumeric(rec.close) ?? price;
-			const change = toNumeric(rec.change) ?? toNumeric(rec.pc);
-			const changePercent =
-				toNumeric(rec.change_percent) ??
-				toNumeric(rec.changePercent) ??
-				toNumeric(rec.pcp);
-			const source = rec.source || "fetch_api";
-
-			stmt.run(
-				timestamp,
-				price,
-				open,
-				high,
-				low,
-				close,
-				change,
-				changePercent,
-				source,
-			);
-			savedCount++;
-		}
-		db.exec("COMMIT");
-	} catch (err) {
-		try {
-			db.exec("ROLLBACK");
-		} catch {}
-		throw err;
-	}
-
-	return savedCount;
-}
-
 export function getLatestKursRecord() {
 	const db = getDb();
 	const stmt = db.prepare(

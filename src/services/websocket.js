@@ -105,8 +105,7 @@ export function startKursWebSocketWatcher({
 	onReconnect,
 	reconnectDelay = 2000,
 	stalledTimeoutMs = 30000,
-	autoSyncOnDisconnect = true,
-} = {}) {
+}) {
 	let ws = null;
 	let heartbeatTimer = null;
 	let reconnectTimer = null;
@@ -168,33 +167,16 @@ export function startKursWebSocketWatcher({
 		}, 5000);
 	}
 
-	async function triggerSync(reason) {
-		try {
-			const { syncKursWithFetchApi } = await import("./kurs.js");
-			await syncKursWithFetchApi();
-		} catch (err) {
-			console.error(
-				`❌ [WS] Gagal auto-sync Fetch API pada event ${reason}:`,
-				err.message || err,
-			);
-		}
-	}
-
 	function handleDisconnect(reason) {
 		if (isConnected) {
 			isConnected = false;
-			console.warn(
-				`⚠️ [WS] Koneksi WebSocket terputus (${reason})! Menyinkronkan riwayat kurs menggunakan Fetch API...`,
-			);
+			console.warn(`⚠️ [WS] Koneksi WebSocket terputus (${reason})!`);
 			if (onDisconnect) {
 				try {
 					onDisconnect(reason);
 				} catch (err) {
 					console.error("Error pada callback onDisconnect:", err);
 				}
-			}
-			if (autoSyncOnDisconnect) {
-				triggerSync("disconnect");
 			}
 		}
 	}
@@ -242,18 +224,13 @@ export function startKursWebSocketWatcher({
 
 				if (!isConnected) {
 					if (hasEverConnected) {
-						console.log(
-							"🔄 [WS] Terhubung kembali ke WebSocket! Menyinkronkan data yang terlewat via Fetch API...",
-						);
+						console.log("🔄 [WS] Terhubung kembali ke WebSocket streaming!");
 						if (onReconnect) {
 							try {
 								onReconnect();
 							} catch (err) {
 								console.error("Error pada callback onReconnect:", err);
 							}
-						}
-						if (autoSyncOnDisconnect) {
-							triggerSync("reconnect");
 						}
 					}
 					isConnected = true;

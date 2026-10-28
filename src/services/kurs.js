@@ -1,18 +1,7 @@
 import { ChartJSNodeCanvas } from "chartjs-node-canvas";
 import { fetch as wreqFetch } from "wreq-js";
 import { formatDateTimeWib, formatDateWib, formatIdr } from "../lib/format.js";
-import {
-	getKursHistory,
-	getLatestKursRecord,
-	saveKursBatch,
-	saveKursTick,
-} from "../storage/db.js";
-import {
-	getLastSyncTime,
-	loadState,
-	saveLastSyncTime,
-	saveState,
-} from "../storage/state.js";
+import { loadState, saveState } from "../storage/state.js";
 import { parsePrice } from "./websocket.js";
 
 const width = 800;
@@ -234,7 +223,7 @@ async function generateKursMessage(
 	const caption =
 		`${prefix}Kurs USD ke IDR\n\n` +
 		`Kurs saat ini: Rp. ${priceStr}\n` +
-		`Range hari ini: Rp. ${lowStr} - Rp. ${highStr}\n` +
+		`Range mingguan: Rp. ${lowStr} - Rp. ${highStr}\n` +
 		`ATH tersimpan: Rp. ${athStr}\n\n` +
 		`Waktu data: ${dataDateStr} WIB\n` +
 		`Sumber: https://investing.com/currencies/usd-idr`;
@@ -242,214 +231,31 @@ async function generateKursMessage(
 	return { imageBuffer, caption, closePrice: priceStr };
 }
 
-export const DEFAULT_SYNC_OFFSET_MS = 15 * 60 * 1000; // 10 menit
-
-let lastSyncResult = null;
-let activeSyncPromise = null;
-
-export async function syncKursWithFetchApi({
-	offsetMs = DEFAULT_SYNC_OFFSET_MS,
-	force = false,
-} = {}) {
-	const now = Date.now();
-	const lastSyncTime = getLastSyncTime();
-	const timeSinceLastSync = now - lastSyncTime;
-
-	// Lewati jika baru saja disinkronkan kurang dari jeda offset 10 menit
-	if (!force && lastSyncTime > 0 && timeSinceLastSync < offsetMs) {
-		const remainingSec = Math.round((offsetMs - timeSinceLastSync) / 1000);
-		console.log(
-			`ℹ️ [SYNC] Sinkronisasi Fetch API dilewati: sinkronisasi terakhir ${Math.round(timeSinceLastSync / 1000)}s lalu (offset jeda 10 menit, sisa ${remainingSec}s).`,
-		);
-		if (!lastSyncResult) {
-			const latest = getLatestKursRecord();
-			if (latest) {
-				lastSyncResult = {
-					syncedCount: 0,
-					latestPrice: latest.price,
-					highestInArray: latest.high,
-					lowestInArray: latest.low,
-					timestamp: latest.timestamp,
-					raw: null,
-				};
-			}
-		}
-		return lastSyncResult;
-	}
-
-	if (activeSyncPromise) {
-		console.log(
-			"ℹ️ [SYNC] Sinkronisasi Fetch API sedang berjalan, menunggu proses yang ada...",
-		);
-		return activeSyncPromise;
-	}
-	activeSyncPromise = (async () => {
-		try {
-			console.log(
-				"🔄 [SYNC] Memulai sinkronisasi riwayat kurs via Fetch API (Investing.com)...",
-			);
-			const { data } = await getKursData();
-			if (!data?.data || !Array.isArray(data.data) || data.data.length === 0) {
-				throw new Error(
-					"Data chart dari Investing.com kosong atau format tidak sesuai",
-				);
-			}
-
-			// Format data: [timestamp, open, high, low, close, volume]
-			const records = data.data.map((point) => ({
-				timestamp: point[0],
-				open: point[1],
-				high: point[2],
-				low: point[3],
-				close: point[4],
-				price: point[4],
-				source: "fetch_api",
-			}));
-
-			const syncedCount = saveKursBatch(records, { replaceSource: true });
-			console.log(
-				`✅ [SYNC] Berhasil menyinkronkan ${syncedCount} titik kurs ke SQLite.`,
-			);
-
-			const latestPoint = data.data[data.data.length - 1];
-			const latestPrice = latestPoint ? latestPoint[4] : null;
-			const highestInArray = Math.max(...data.data.map((d) => d[2]));
-			const lowestInArray = Math.min(...data.data.map((d) => d[3]));
-
-			// Cek dan sinkronkan rekor ATH jika ada nilai lebih tinggi
-			const state = loadState();
-			const previousAth = state.ath || highestInArray;
-			if (highestInArray > previousAth) {
-				state.ath = highestInArray;
-				saveState(state);
-				console.log(
-					`📈 [SYNC] Rekor ATH baru diperbarui di state: Rp ${highestInArray}`,
-				);
-			}
-
-			saveLastSyncTime(Date.now());
-			lastSyncResult = {
-				syncedCount,
-				latestPrice,
-				highestInArray,
-				lowestInArray,
-				timestamp: latestPoint ? latestPoint[0] : Date.now(),
-				raw: data,
-			};
-
-			return lastSyncResult;
-		} finally {
-			activeSyncPromise = null;
-		}
-	})();
-
-	return activeSyncPromise;
-}
-
 /**
- * Ambil titik data chart murni dari database SQLite
+ * Ambil data kurs dan grafik mingguan via Fetch API Investing.com untuk laporan harian
  */
-export function getChartDataFromDatabase(limit = 160) {
-	let history = getKursHistory(limit, "fetch_api");
-	if (history.length === 0) {
-		history = getKursHistory(limit);
-	}
-	if (history.length === 0) {
-		throw new Error(
-			"Data riwayat kurs di SQLite kosong. Pastikan bot sudah tersinkronisasi saat startup.",
-		);
-	}
-
-	const points = history.map((h) => [
-		h.timestamp,
-		h.open ?? h.price,
-		h.high ?? h.price,
-		h.low ?? h.price,
-		h.close ?? h.price,
-		0,
-		0,
-	]);
-	const highestInArray = Math.max(...points.map((d) => d[2]));
-	const lowestInArray = Math.min(...points.map((d) => d[3]));
-
-	return {
-		data: { data: points },
-		highestInArray,
-		lowestInArray,
-	};
-}
-
 export async function getKursReport(options = { isDaily: true, wsData: null }) {
-	if (options.isDaily) {
-		const { data, highestInArray, lowestInArray } =
-			getChartDataFromDatabase(160);
+	const { data } = await getKursData();
+	const highestInArray = Math.max(...data.data.map((d) => d[2]));
+	const lowestInArray = Math.min(...data.data.map((d) => d[3]));
 
-		const state = loadState();
+	const currentPrice = options?.wsData
+		? Number(options.wsData.last_numeric ?? parsePrice(options.wsData.last))
+		: null;
 
-		const previousAth = state.ath || highestInArray;
-		const newAth = highestInArray > previousAth ? highestInArray : previousAth;
-		const isAthCrossed =
-			Math.floor(newAth / 100) > Math.floor(previousAth / 100);
-
-		const result = await generateKursMessage(
-			data,
-			isAthCrossed,
-			state,
-			highestInArray,
-			lowestInArray,
-		);
-		return result;
-	}
-
-	// Pengecekan ATH
-	let wsData = options.wsData;
-	if (!wsData) {
-		const latest = getLatestKursRecord();
-		if (!latest) {
-			throw new Error(
-				"Data kurs di SQLite kosong. Pastikan bot sudah tersinkronisasi saat startup.",
-			);
-		}
-		wsData = {
-			timestamp: latest.timestamp,
-			last: latest.price,
-			last_numeric: latest.price,
-			high: latest.high,
-			low: latest.low,
-			source: latest.source,
-		};
-	} else {
-		// Simpan data tick ke SQLite jika dipassing dari watcher live
-		try {
-			saveKursTick({
-				timestamp: wsData.timestamp,
-				price: wsData.last_numeric ?? wsData.last,
-				last: wsData.last,
-				last_numeric: wsData.last_numeric,
-				high: wsData.high,
-				low: wsData.low,
-				change: wsData.change ?? wsData.pc,
-				changePercent: wsData.changePercent ?? wsData.pcp,
-				source: "websocket",
-			});
-		} catch (err) {
-			console.error("Gagal menyimpan tick WebSocket ke SQLite:", err);
-		}
-	}
-
-	const currentPrice = wsData.last_numeric
-		? Number(wsData.last_numeric)
-		: parsePrice(wsData.last);
-	const highPrice = wsData.high ? parsePrice(wsData.high) : currentPrice;
-	const lowPrice = wsData.low ? parsePrice(wsData.low) : currentPrice;
-	const priceToCheck = Math.max(currentPrice, highPrice);
+	const priceToCheck = currentPrice
+		? Math.max(
+				currentPrice,
+				options.wsData?.high ? parsePrice(options.wsData.high) : currentPrice,
+			)
+		: highestInArray;
 
 	const state = loadState();
 	const previousAth = state.ath || priceToCheck;
 	const newAth = priceToCheck > previousAth ? priceToCheck : previousAth;
 	const isAthCrossed = Math.floor(newAth / 100) > Math.floor(previousAth / 100);
 
-	if (!isAthCrossed) {
+	if (!options?.isDaily && !isAthCrossed) {
 		if (newAth > previousAth) {
 			state.ath = newAth;
 			saveState(state);
@@ -457,21 +263,18 @@ export async function getKursReport(options = { isDaily: true, wsData: null }) {
 		return null;
 	}
 
-	// Jika rekor ATH baru kelipatan 100 terlewati, ambil data chart untuk posting gambar
-	const {
-		data,
-		highestInArray: highestFromChart,
-		lowestInArray: lowestFromChart,
-	} = getChartDataFromDatabase(160);
-	const highestInArray = Math.max(highestFromChart, priceToCheck);
-	const lowestInArray = Math.min(lowestFromChart, lowPrice);
-	const result = await generateKursMessage(
+	const highest = Math.max(highestInArray, priceToCheck);
+	const lowest = Math.min(
+		lowestInArray,
+		options?.wsData?.low ? parsePrice(options.wsData.low) : lowestInArray,
+	);
+
+	return await generateKursMessage(
 		data,
 		isAthCrossed,
 		state,
-		highestInArray,
-		lowestInArray,
+		highest,
+		lowest,
 		currentPrice,
 	);
-	return result;
 }

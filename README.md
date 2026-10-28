@@ -6,21 +6,20 @@ Bot otomatis berbasis Node.js yang memantau dan memposting informasi kurs **USD 
 
 ```mermaid
 flowchart LR
-    A[WebSocket + fetch API Investing.com] --> B[(SQLite Lokal)]
-    B --> C[Laporan Harian<br/>16:00 WIB + Grafik]
-    B --> D[Alert Rekor ATH<br/>Kelipatan Rp 100]
-    C --> E[Linimasa Misskey]
-    D --> E
+    WS[WebSocket Live 24/7] --> DB[(SQLite Lokal<br/>Logging)]
+    WS -->|Deteksi ATH Kelipatan 100| ATH[Alert Rekor ATH]
+    API[Fetch API Investing.com] --> DAILY[Laporan Harian 16:00 WIB<br/>+ Grafik Mingguan]
+    API -.->|Ambil Grafik| ATH
+    DAILY --> MISSKEY[Linimasa Misskey]
+    ATH --> MISSKEY
 ```
 
 | Komponen | Deskripsi |
 |---|---|
-| **Monitoring** | Streaming harga live 24/7 via WebSocket Investing.com, dilengkapi *heartbeat* otomatis dan *watchdog timer* pemulih koneksi. |
-| **Database** | SQLite lokal (`data/kurs.db`) yang merangkum tick menjadi candle OHLC via kueri *upsert*, hemat memori (< 5 MB/tahun). |
-| **Grafik** | Render chart kurva **1 minggu terakhir** berbasis candle 1 jam (`PT1H`), lengkap dengan label jam berurutan di atas tanggal pada sumbu X. |
-| **Posting Harian** | Cron otomatis Senin–Sabtu pukul 16:00 WIB untuk membuat gambar grafik dan memposting laporan ke linimasa Misskey secara *offline-ready*. |
-| **Alert ATH** | Pengecekan real-time di memori yang langsung memposting notifikasi saat kurs menembus rekor ATH baru kelipatan Rp 100 (contoh: Rp 17.600 $\rightarrow$ Rp 17.700). |
-
+| **WebSocket & Logging** | Streaming harga live 24/7 dari Investing.com untuk logging terminal dan pencatatan candle 15m ke SQLite (`data/kurs.db`). |
+| **Pengecekan ATH** | Pengecekan real-time di memori via WebSocket yang memposting notifikasi saat menembus rekor baru kelipatan Rp 100 (misal: Rp 18.100 $\rightarrow$ Rp 18.200). |
+| **Laporan Harian** | Cron otomatis Senin–Sabtu pukul 16:00 WIB yang mengambil data langsung dari Fetch API Investing.com dan memposting ke Misskey. |
+| **Grafik Mingguan** | Visualisasi pergerakan kurs 1 minggu terakhir (candle 1 jam `PT1H`) dengan label jam berurutan di atas tanggal pada sumbu X. |
 ## 🛠️ Persyaratan Sistem
 
 - **Node.js**: v24+ atau versi lebih baru
@@ -98,25 +97,15 @@ Menguji alur penuh termasuk upload gambar dan posting note ke Misskey (default v
   ```bash
   pnpm run test-ath
   ```
+
 ### Parameter Custom Visibility pada Mode Testing
 
 Secara default, mode testing menggunakan visibilitas `specified` agar pengujian tidak mengotori linimasa publik Misskey. Anda dapat menentukan visibilitas kustom (`public`, `home`, `followers`, `specified`) secara fleksibel:
 
-- **Test Posting Harian dengan Visibilitas Kustom**:
-
-  ```bash
-  # Menggunakan pnpm
-  pnpm test public
-  pnpm test home
-  ```
-
-- **Test Pengecekan ATH dengan Visibilitas Kustom**:
-
-  ```bash
-  # Menggunakan pnpm
-  pnpm run test-ath public
-  pnpm run test-ath specified
-  ```
+```bash
+pnpm test public
+pnpm run test-ath specified
+```
 ---
 
 ## 📄 Lisensi

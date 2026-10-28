@@ -2,7 +2,6 @@ import fs from "node:fs";
 import { postNoteWithMedia, uploadMedia } from "./lib/misskey.js";
 import { getKursReport } from "./services/kurs.js";
 import { parsePrice } from "./services/websocket.js";
-import { saveKursTick } from "./storage/db.js";
 import {
 	getTimezoneDateInfo,
 	isDailyPostedToday,
@@ -28,9 +27,9 @@ export function clearDailyRetryTimeout() {
  * Core runner untuk memproses siklus fetch data, upload media, dan posting note.
  */
 export async function processKursTask({
-	isDaily,
+	isDaily = true,
 	visibility,
-	taskLabel,
+	taskLabel = "posting harian",
 	wsData = null,
 	dryRun = false,
 }) {
@@ -38,7 +37,7 @@ export async function processKursTask({
 		`\n[${new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })}] Memulai proses ${taskLabel}...`,
 	);
 	try {
-		console.log("-> Mengambil data kurs terbaru...");
+		console.log("-> Mengambil data kurs terbaru via Fetch API...");
 		const report = await getKursReport({ isDaily, wsData });
 
 		if (!report) {
@@ -103,7 +102,6 @@ export async function runDailyTask(
 ) {
 	const dryRun = Boolean(options.dryRun || options.local);
 	const success = await processKursTask({
-		isDaily: true,
 		visibility,
 		taskLabel: "posting harian",
 		dryRun,
@@ -224,28 +222,11 @@ export async function runAthCheckTask(
 }
 
 /**
- * Handler untuk pembaruan harga live dari WebSocket
+ * Handler untuk pembaruan harga live dari WebSocket (deteksi ATH)
  */
 export async function handleLivePriceUpdate(wsData, visibility = "public") {
 	if (isAthTaskRunning) {
 		return;
-	}
-
-	// Simpan data tick harga live ke SQLite
-	try {
-		saveKursTick({
-			timestamp: wsData.timestamp,
-			price: wsData.last_numeric ?? wsData.last,
-			last: wsData.last,
-			last_numeric: wsData.last_numeric,
-			high: wsData.high,
-			low: wsData.low,
-			change: wsData.change ?? wsData.pc,
-			changePercent: wsData.changePercent ?? wsData.pcp,
-			source: "websocket",
-		});
-	} catch (err) {
-		console.error("Gagal menyimpan tick live ke SQLite:", err);
 	}
 
 	const currentPrice = wsData.last_numeric

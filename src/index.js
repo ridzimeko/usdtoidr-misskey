@@ -1,7 +1,7 @@
 import "dotenv/config";
 import cron from "node-cron";
 import { isTestMode, runTestTask } from "./cli.js";
-import { syncKursWithFetchApi } from "./services/kurs.js";
+
 import { startKursWebSocketWatcher } from "./services/websocket.js";
 import { initDatabase } from "./storage/db.js";
 import {
@@ -16,7 +16,7 @@ const dailySchedule = "0 16 * * 1-6"; // Setiap hari Senin-Sabtu pukul 16:00 WIB
 export let athWatcherStop = null;
 
 /**
- * Memulai watcher WebSocket untuk mendeteksi rekor ATH
+ * Memulai watcher WebSocket untuk mendeteksi rekor ATH dan logging
  */
 export function startAthWatcher(visibility = "public") {
 	if (athWatcherStop) {
@@ -26,26 +26,12 @@ export function startAthWatcher(visibility = "public") {
 	athWatcherStop = startKursWebSocketWatcher({
 		onPrice: (wsData) => handleLivePriceUpdate(wsData, visibility),
 		onDisconnect: (reason) => {
-			console.warn(
-				`⚠️ [WS DISCONNECT] Koneksi WebSocket terputus (${reason}). Menyinkronkan riwayat kurs via Fetch API...`,
-			);
-			syncKursWithFetchApi().catch((err) => {
-				console.error(
-					"Gagal menyinkronkan riwayat kurs via Fetch API saat disconnect:",
-					err,
-				);
-			});
+			console.warn(`⚠️ [WS DISCONNECT] Koneksi WebSocket terputus (${reason}).`);
 		},
 		onReconnect: () => {
 			console.log(
-				"🔄 [WS RECONNECT] Terhubung kembali ke WebSocket! Menyinkronkan data yang terlewat via Fetch API...",
+				"🔄 [WS RECONNECT] Terhubung kembali ke WebSocket streaming!",
 			);
-			syncKursWithFetchApi().catch((err) => {
-				console.error(
-					"Gagal menyinkronkan riwayat kurs via Fetch API saat reconnect:",
-					err,
-				);
-			});
 		},
 		onError: (err) => {
 			console.error("[WS] WebSocket error:", err.message || err);
@@ -99,25 +85,21 @@ export async function startDaemon() {
 	console.log(
 		`[CRON] Jadwal posting harian diatur: ${dailySchedule} (Zona Waktu: ${timezone})`,
 	);
-	console.log("[WS] Pengecekan ATH aktif secara real-time via WebSocket");
+	console.log(
+		"[WS] Pengecekan ATH dan logging aktif secara real-time via WebSocket",
+	);
 
-	// Inisialisasi Database SQLite
+	// Inisialisasi Database SQLite untuk logging
 	initDatabase();
 
 	// Registrasi Cron Schedules
 	registerCronSchedules();
-
-	// Sinkronisasi riwayat kurs awal saat bot mulai berjalan
-	syncKursWithFetchApi().catch((err) => {
-		console.error("Gagal melakukan sinkronisasi awal riwayat kurs:", err);
-	});
 
 	// Pemeriksaan jika ada postingan hari ini yang terlewat
 	checkAndRunDailyWatchdog("startup-catchup", timezone);
 
 	// Jalankan watcher WebSocket
 	startAthWatcher("public");
-
 	console.log("[BOT] Menunggu jadwal berikutnya...");
 }
 

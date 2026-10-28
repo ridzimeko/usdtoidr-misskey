@@ -1,5 +1,3 @@
-import { syncKursWithFetchApi } from "./services/kurs.js";
-import { initDatabase } from "./storage/db.js";
 import { runAthCheckTask, runDailyTask } from "./tasks.js";
 
 export const VALID_VISIBILITIES = ["public", "home", "followers", "specified"];
@@ -54,16 +52,6 @@ export async function runTestTask({
 	args = process.argv.slice(2),
 	exitOnDone = true,
 } = {}) {
-	initDatabase();
-
-	try {
-		await syncKursWithFetchApi({ offsetMs: 30 * 60 * 1000 });
-	} catch (err) {
-		console.warn(
-			`⚠️ [TEST] Gagal sinkronisasi data kurs terbaru: ${err.message}. Menggunakan data cache database.`,
-		);
-	}
-
 	const isLocal = args.some(
 		(arg) => arg === "--local" || arg === "--test-local" || arg === "--dry-run",
 	);

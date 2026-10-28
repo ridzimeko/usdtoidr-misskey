@@ -55,14 +55,3 @@ export function markDailySuccess(dateString) {
 	state.lastDailySuccessDate = dateString;
 	saveState(state);
 }
-
-export function getLastSyncTime() {
-	const state = loadState();
-	return typeof state.lastSyncTime === "number" ? state.lastSyncTime : 0;
-}
-
-export function saveLastSyncTime(timestamp = Date.now()) {
-	const state = loadState();
-	state.lastSyncTime = timestamp;
-	saveState(state);
-}
